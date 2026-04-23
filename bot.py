@@ -110,7 +110,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         # 動態執行工具
                         if func_name in AGENT_TOOLS_REGISTRY:
                             target_func = AGENT_TOOLS_REGISTRY[func_name]["func"]
-                            result = await target_func(**args)
+                            result = await target_func(chat_id=chat_id, context=context, **args)
                             
                             user_memory[user_id].append({
                                 "role": "tool",
