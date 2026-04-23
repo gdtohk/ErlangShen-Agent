@@ -1,5 +1,5 @@
 # skills/rebar.py
-async def calc_rebar_weight(d: float, length: float, qty: float = 1.0):
+async def calc_rebar_weight(d: float, length: float, qty: float = 1.0, **kwargs):
     """計算鋼筋重量的純運算函數"""
     try:
         unit_weight = (d ** 2) / 162
