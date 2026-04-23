@@ -3,6 +3,7 @@ import json
 import base64
 import logging
 import aiohttp
+import datetime  # 👈 新增：時間模組，讓悟空擁有「手錶」
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
@@ -38,8 +39,8 @@ MAX_HISTORY = 10
 SYSTEM_PROMPT = """
 你是悟空 (Wukong)，何生（香港建築行業 QS 兼紮鐵拆圖工程師）的專屬智能代理。
 請用繁體中文（適當夾雜地道廣東話）回答。
-你具備視覺能力（可看工程圖紙）和工具調用能力（可計算數據）。
-如果需要運算，請務必調用對應工具。
+你具備視覺能力（可看工程圖紙）和工具調用能力（可計算數據、查天氣、設定排程）。
+如果需要運算或設定定時任務，請務必調用對應工具。
 """
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -73,9 +74,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         content_payload = user_text
 
-    # 2. 記憶體管理
+    # 👉 2. 記憶體管理（動態時間注入）
+    # 取得最新香港時間 (UTC+8)，讓大腦隨時知道現在幾點
+    hk_time = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
+    current_time_str = hk_time.strftime("%Y年%m月%d日 %H:%M")
+    dynamic_system_prompt = SYSTEM_PROMPT + f"\n\n【系統強制注入】：現在的準確香港時間是 {current_time_str}。"
+
     if user_id not in user_memory:
-        user_memory[user_id] = [{"role": "system", "content": SYSTEM_PROMPT}]
+        user_memory[user_id] = [{"role": "system", "content": dynamic_system_prompt}]
+    else:
+        # 確保每次對話都更新時間，保證大腦的手錶永遠是最準的
+        if user_memory[user_id][0]["role"] == "system":
+            user_memory[user_id][0]["content"] = dynamic_system_prompt
+    
+    # 把這次的訊息加入記憶體
     user_memory[user_id].append({"role": "user", "content": content_payload})
 
     # 3. 發送給大腦 (帶上工具箱)
@@ -99,7 +111,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 data = await response.json()
                 response_message = data['choices'][0]['message']
 
-                # 如果大腦決定調用工具 (例如算鋼筋)
+                # 如果大腦決定調用工具
                 if response_message.get('tool_calls'):
                     user_memory[user_id].append(response_message) # 記錄大腦的動作
                     
@@ -110,6 +122,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         # 動態執行工具
                         if func_name in AGENT_TOOLS_REGISTRY:
                             target_func = AGENT_TOOLS_REGISTRY[func_name]["func"]
+                            
+                            # 👉 核心升級：把 chat_id 和 context 傳給工具，讓工具能「主動發言」！
                             result = await target_func(chat_id=chat_id, context=context, **args)
                             
                             user_memory[user_id].append({
@@ -119,7 +133,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                 "content": str(result)
                             })
                     
-                    # 第二回合：把計算結果給大腦，讓它組織語言
+                    # 第二回合：把計算或設定結果給大腦，讓它組織語言回覆你
                     payload["messages"] = user_memory[user_id]
                     payload.pop("tools", None)
                     async with session.post(API_URL, headers=headers, json=payload) as res2:
