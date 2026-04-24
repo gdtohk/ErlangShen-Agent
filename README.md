@@ -16,12 +16,13 @@
 
 本專案建議部署於 Linux 伺服器 (如 Ubuntu 24.04)。以下為從零開始的完整架設步驟。
 
-### Step 1: 系統底層環境準備
-為了讓機器人能夠處理 Telegram 的語音訊息 (接收與發送)，必須在系統底層安裝影音處理器與編碼器。請在終端機執行：
+### 系統底層環境準備
 
 ```bash
+Step 1: 為了讓機器人能夠處理 Telegram 的語音訊息 (接收與發送)，必須在系統底層安裝影音處理器與編碼器。請在終端機執行：
 sudo apt update
 sudo apt install ffmpeg flac -y
+
 Step 2: 下載專案與建立虛擬環境
 將代碼庫克隆到伺服器，並建立獨立的 Python 虛擬環境以避免套件衝突：
 
@@ -38,6 +39,7 @@ source venv/bin/activate
 
 # 4. 安裝所有必備的 Python 依賴套件
 pip install -r requirements.txt
+
 Step 3: 配置環境變數 (.env)
 為了保護敏感資訊（如 API 金鑰），本專案強制使用 .env 隱藏檔讀取配置。
 請在專案目錄下建立 .env 檔案：
