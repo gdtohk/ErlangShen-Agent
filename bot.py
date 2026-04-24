@@ -61,6 +61,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     is_voice_mode = False  # 標記老闆這次是不是用語音說話
     content_payload = []
+    
+    # 定義專屬的暫存檔名，避免衝突
+    temp_ogg = f"temp_voice_{user_id}.ogg"
+    temp_wav = f"temp_voice_{user_id}.wav"
+    reply_mp3 = f"reply_{user_id}.mp3"
 
     # 🎧 1. 解析 Telegram 輸入：如果收到的是「語音」
     if update.message.voice:
@@ -69,15 +74,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             # 下載語音檔 (Telegram 預設是 .ogg)
             voice_file = await update.message.voice.get_file()
-            await voice_file.download_to_drive("temp_voice.ogg")
+            await voice_file.download_to_drive(temp_ogg)
             
             # 轉換成 .wav 格式 (SpeechRecognition 需要 wav)
-            audio = AudioSegment.from_file("temp_voice.ogg")
-            audio.export("temp_voice.wav", format="wav")
+            audio = AudioSegment.from_file(temp_ogg)
+            audio.export(temp_wav, format="wav")
             
             # 進行語音辨識 (指定為香港廣東話)
             recognizer = sr.Recognizer()
-            with sr.AudioFile("temp_voice.wav") as source:
+            with sr.AudioFile(temp_wav) as source:
                 audio_data = recognizer.record(source)
                 user_text = recognizer.recognize_google(audio_data, language="yue-Hant-HK")
             
@@ -90,6 +95,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             await status_msg.edit_text(f"❌ 語音處理出錯：{str(e)}")
             return
+        finally:
+            # 🗑️ 清理語音暫存檔，釋放硬碟空間
+            if os.path.exists(temp_ogg): os.remove(temp_ogg)
+            if os.path.exists(temp_wav): os.remove(temp_wav)
 
     # 👁️ 2. 解析 Telegram 輸入：如果收到的是「圖片」
     elif update.message.photo:
@@ -113,7 +122,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         content_payload = update.message.text or ""
 
     # 👉 記憶體管理（動態時間注入）
-    # 取得最新香港時間 (UTC+8)，讓大腦隨時知道現在幾點
     hk_time = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
     current_time_str = hk_time.strftime("%Y年%m月%d日 %H:%M")
     dynamic_system_prompt = SYSTEM_PROMPT + f"\n\n【系統強制注入】：現在的準確香港時間是 {current_time_str}。"
@@ -121,16 +129,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in user_memory:
         user_memory[user_id] = [{"role": "system", "content": dynamic_system_prompt}]
     else:
-        # 確保每次對話都更新時間，保證大腦的手錶永遠是最準的
         if user_memory[user_id][0]["role"] == "system":
             user_memory[user_id][0]["content"] = dynamic_system_prompt
     
-    # 把這次的訊息加入記憶體
     user_memory[user_id].append({"role": "user", "content": content_payload})
 
     # 發送給大腦 (帶上工具箱)
     payload = {
-        "model": "gemini-3.1-flash-lite-preview", # 👈 已切換為 Lite 模型，防止 429 塞車錯誤
+        "model": "gemini-3.1-flash-lite-preview", 
         "messages": user_memory[user_id],
         "tools": GET_TOOLS_LIST,
         "tool_choice": "auto"
@@ -151,17 +157,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 # 如果大腦決定調用工具
                 if response_message.get('tool_calls'):
-                    user_memory[user_id].append(response_message) # 記錄大腦的動作
+                    user_memory[user_id].append(response_message) 
                     
                     for tool_call in response_message['tool_calls']:
                         func_name = tool_call['function']['name']
                         args = json.loads(tool_call['function']['arguments'])
                         
-                        # 動態執行工具
                         if func_name in AGENT_TOOLS_REGISTRY:
                             target_func = AGENT_TOOLS_REGISTRY[func_name]["func"]
-                            
-                            # 把 chat_id 和 context 傳給工具，讓工具能「主動發言」！
                             result = await target_func(chat_id=chat_id, context=context, **args)
                             
                             user_memory[user_id].append({
@@ -192,12 +195,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await context.bot.send_chat_action(chat_id=chat_id, action='record_voice')
                     try:
                         tts = gTTS(text=final_reply, lang='yue') 
-                        tts.save("reply.mp3")
-                        with open("reply.mp3", "rb") as voice_output:
+                        tts.save(reply_mp3)
+                        with open(reply_mp3, "rb") as voice_output:
                             await update.message.reply_voice(voice=voice_output)
                     except Exception as e:
                         logging.error(f"語音生成失敗: {e}")
                         await update.message.reply_text("❌ 語音生成出錯，請睇文字回覆啦老闆！")
+                    finally:
+                        # 🗑️ 發送完畢後，立即清理語音回覆檔
+                        if os.path.exists(reply_mp3): os.remove(reply_mp3)
 
                 # 清理過舊記憶，避免 Token 爆滿
                 if len(user_memory[user_id]) > MAX_HISTORY * 2 + 1:
