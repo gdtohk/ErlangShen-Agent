@@ -210,7 +210,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
-    # ⚠️ 注意這裡：加入 filters.VOICE，讓它能接收語音訊息
+    # ✅ 加入了 filters.VOICE，這樣它才不會無視你的語音訊息
     app.add_handler(MessageHandler(filters.TEXT | filters.PHOTO | filters.VOICE, handle_message))
     print("🚀 悟空 Agent 啟動成功！支援語音對話！")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
