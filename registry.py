@@ -61,8 +61,8 @@ async def search_web(chat_id, context, query):
                     return f"❌ 搵唔到關於「{query}」嘅最新資訊。"
 
                 formatted_results = []
-                # 提取最頂部的 5 條新聞
-                for item in items[:5]:
+                # 提取最頂部的 10 條新聞
+                for item in items[:10]:
                     title = item.findtext('title')
                     pubDate = item.findtext('pubDate')
                     formatted_results.append(f"📰 【{title}】\n🕒 時間：{pubDate}")
