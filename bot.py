@@ -3,7 +3,8 @@ import json
 import base64
 import logging
 import aiohttp
-import datetime  # 👈 時間模組，讓悟空擁有「手錶」
+import datetime
+from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
@@ -19,7 +20,7 @@ from registry import GET_TOOLS_LIST, AGENT_TOOLS_REGISTRY
 # --- 顯示日誌 ---
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-# ================= 配置區 =================
+# ================= 配置區 (動態讀取 .env) =================
 # 啟動時自動去讀取 .env 隱藏檔
 load_dotenv() 
 
@@ -32,6 +33,13 @@ API_URL = os.getenv("API_URL")
 _allowed_user_str = os.getenv("ALLOWED_USER_ID")
 ALLOWED_USER_ID = int(_allowed_user_str) if _allowed_user_str else 0
 
+# 🌍 國際化與個性化配置 (若 .env 沒寫，則使用後面的預設值)
+BOT_NAME = os.getenv("BOT_NAME", "AI 助理")
+OWNER_NAME = os.getenv("OWNER_NAME", "老闆")
+OWNER_ROLE = os.getenv("OWNER_ROLE", "專業人士")
+TIMEZONE_STR = os.getenv("TIMEZONE", "UTC")
+LOCATION = os.getenv("LOCATION", "Global")
+
 # 嚴格防護：缺少任何一個變數，程式直接終止，絕不帶病運行
 if not TELEGRAM_TOKEN or not API_KEY or not API_URL or ALLOWED_USER_ID == 0:
     logging.error("❌ 系統啟動失敗：缺少必要的環境變數，請確認 .env 檔案是否填寫完整！")
@@ -41,14 +49,74 @@ if not TELEGRAM_TOKEN or not API_KEY or not API_URL or ALLOWED_USER_ID == 0:
 user_memory = {}
 MAX_HISTORY = 10 
 
-SYSTEM_PROMPT = """
-你是悟空 (Wukong)，何生（香港建築行業 QS 兼紮鐵拆圖工程師）的專屬智能代理。
+# 👉 動態生成的系統提示詞
+SYSTEM_PROMPT = f"""
+你是{BOT_NAME}，{OWNER_NAME}（{LOCATION}{OWNER_ROLE}）的專屬智能代理。
 請用繁體中文（適當夾雜地道廣東話）回答。
 你具備視覺能力（可看工程圖紙）和工具調用能力（可計算數據、查天氣、設定排程）。
+
+【🤖 你的核心能力認知】：
+1. 你「完全具備」語音對話能力！老闆發送語音時，系統會轉成文字給你；你的文字回覆也會自動轉成廣東話語音發送給老闆。
+2. 如果老闆問「你有收到語音嗎」或「你會語音對話嗎」，請自信回答「有」或「會」。千萬不要回答你只支援文字！
+
 如果需要運算或設定定時任務，請務必調用對應工具。
 (注意：如果老闆用語音發問，請盡量簡短扼要回答，方便語音播報)
 """
 
+# ================= 每日天氣晨報邏輯 =================
+async def daily_morning_report(context: ContextTypes.DEFAULT_TYPE):
+    chat_id = ALLOWED_USER_ID
+    # 根據 .env 的時區獲取時間
+    local_time = datetime.datetime.now(ZoneInfo(TIMEZONE_STR))
+    weekdays_tc = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
+    date_str = local_time.strftime(f"%Y年%m月%d日 ({weekdays_tc[local_time.weekday()]})")
+
+    report = ""
+    # 如果地點是香港，就呼叫天文台 API
+    if LOCATION == "Hong Kong":
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get("https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=flw&lang=tc") as resp:
+                    flw_data = await resp.json()
+                    forecast_desc = flw_data.get("generalSituation", "") + "\n" + flw_data.get("tcInfo", "")
+                
+                async with session.get("https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=fnd&lang=tc") as resp:
+                    fnd_data = await resp.json()
+                    forecast_7days = fnd_data.get("weatherForecast", [])[:7]
+
+            report = f"🌅 早晨{OWNER_NAME}！今日係 {date_str}。\n\n"
+            report += "【🌩️ 本地最新天氣預報】\n"
+            report += f"{forecast_desc}\n\n"
+            report += "【📅 未來七天天氣展望】\n"
+            
+            for day in forecast_7days:
+                date = day.get('forecastDate')
+                week = day.get('forecastWeek')
+                temp = f"{day.get('forecastMintemp', {}).get('value')}°C - {day.get('forecastMaxtemp', {}).get('value')}°C"
+                weather = day.get('forecastWeather')
+                report += f"🔹 {date[4:6]}月{date[6:]}日 ({week}): {temp}, {weather}\n"
+            
+            report += "\n祝你今日工作順利，出入平安！👷‍♂️"
+        except Exception as e:
+            logging.error(f"獲取天文台數據失敗: {e}")
+            report = f"🌅 早晨{OWNER_NAME}！今日係 {date_str}。天文台數據暫時連線唔到，出門記得望下天呀！"
+    else:
+        # 如果不是香港，發送通用問候
+        report = f"🌅 早晨{OWNER_NAME}！今日係 {date_str}。新的一天開始了，祝你今日在 {LOCATION} 工作順利！"
+
+    await context.bot.send_message(chat_id=chat_id, text=report)
+    
+    # 晨報語音播報
+    try:
+        tts = gTTS(text=report.replace("°C", "度"), lang='yue') 
+        tts.save("morning_weather.mp3")
+        with open("morning_weather.mp3", "rb") as voice_output:
+            await context.bot.send_voice(chat_id=chat_id, voice=voice_output)
+        os.remove("morning_weather.mp3")
+    except Exception as e:
+        logging.error(f"晨報語音生成失敗: {e}")
+
+# ================= 主要對話處理邏輯 =================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message: return
     user_id = update.effective_user.id
@@ -122,9 +190,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         content_payload = update.message.text or ""
 
     # 👉 記憶體管理（動態時間注入）
-    hk_time = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
-    current_time_str = hk_time.strftime("%Y年%m月%d日 %H:%M")
-    dynamic_system_prompt = SYSTEM_PROMPT + f"\n\n【系統強制注入】：現在的準確香港時間是 {current_time_str}。"
+    local_time = datetime.datetime.now(ZoneInfo(TIMEZONE_STR))
+    weekdays_tc = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
+    weekday_str = weekdays_tc[local_time.weekday()]
+    
+    current_time_str = local_time.strftime(f"%Y年%m月%d日 %H:%M ({weekday_str})")
+    dynamic_system_prompt = SYSTEM_PROMPT + f"\n\n【系統強制注入】：現在的準確當地時間是 {current_time_str}。"
 
     if user_id not in user_memory:
         user_memory[user_id] = [{"role": "system", "content": dynamic_system_prompt}]
@@ -218,7 +289,12 @@ def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     # ✅ 加入了 filters.VOICE，這樣它才不會無視你的語音訊息
     app.add_handler(MessageHandler(filters.TEXT | filters.PHOTO | filters.VOICE, handle_message))
-    print("🚀 悟空 Agent 啟動成功！支援語音對話！")
+    
+    # ⏰ 鬧鐘會根據 .env 設定的時區，在當地的 05:30 觸發
+    t = datetime.time(hour=5, minute=30, tzinfo=ZoneInfo(TIMEZONE_STR))
+    app.job_queue.run_daily(daily_morning_report, t)
+    
+    print(f"🚀 {BOT_NAME} Agent 啟動成功！已載入時區：{TIMEZONE_STR}，地點：{LOCATION}")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
