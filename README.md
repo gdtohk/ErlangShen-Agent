@@ -55,7 +55,7 @@ OWNER_NAME=HO（可隨意填寫）
 OWNER_ROLE=Rebar Detailer and QS（可隨意填寫）
 TIMEZONE=Asia/Hong_Kong（英語填寫：洲/城市）
 LOCATION=Hong Kong（英語填寫：城市）
-MODEL_NAME=gemini-2.5-pro（模型名稱）
+MODEL_NAME=gemini-2.5-pro（你的模型名稱）
 (提示：在 nano 編輯器中按 Ctrl+O 存檔，按 Enter 確認，再按 Ctrl+X 離開。)
 
 Step 4: 背景常駐運行 (使用 tmux)
