@@ -17,7 +17,7 @@ async def get_global_weather(chat_id, context, location):
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=headers) as resp:
                 if resp.status == 200:
-                    data = await resp.json()
+                    data = await resp.json(content_type=None)
                     current = data['current_condition'][0]
                     temp = current['temp_C']
                     desc = current['weatherDesc'][0]['value']
