@@ -1,5 +1,5 @@
 import asyncio
-from duckduckgo_search import DDGS
+from googlesearch import search
 import aiohttp
 from skills.scheduler import schedule_daily_weather
 from skills.rebar import calc_rebar_weight
@@ -31,30 +31,31 @@ async def get_global_weather(chat_id, context, location):
         print(f"❌ [Debug] 查詢 {location} 出錯：{str(e)}")
         return f"❌ 查詢出錯：{str(e)}"
 
-# ================= 新增：即時網絡搜尋函數 =================
+# ================= 新增：即時網絡搜尋函數 (Google 版) =================
 async def search_web(chat_id, context, query):
-    """使用 DuckDuckGo 搜尋全球即時資訊與新聞"""
-    print(f"🔍 [Debug] 準備搜尋網絡，關鍵字：{query}")
+    """使用 Google 搜尋全球即時資訊與新聞"""
+    print(f"🔍 [Debug] 準備使用 Google 搜尋網絡，關鍵字：{query}")
     try:
         def do_search():
-            with DDGS() as ddgs:
-                return list(ddgs.text(query, region='hk-tzh', max_results=10))
+            # advanced=True 可以攞埋新聞標題同摘要，lang="zh-HK" 優先出香港繁體內容
+            return list(search(query, num_results=5, advanced=True, lang="zh-HK", region="hk"))
 
         results = await asyncio.to_thread(do_search)
 
         if not results:
-            return f"❌ 搵唔到關於「{query}」嘅最新資訊。"
+            return f"❌ 喺 Google 搵唔到關於「{query}」嘅最新資訊。"
 
         formatted_results = []
         for r in results:
-            formatted_results.append(f"📰 【{r.get('title', '無標題')}】\n📝 摘要：{r.get('body', '無內容')}")
+            # Google 傳回來的物件有 title 同 description 屬性
+            formatted_results.append(f"📰 【{r.title}】\n📝 摘要：{r.description}")
 
-        reply_text = "以下係最新嘅網絡搜尋結果，請根據這些資訊總結並回答老闆：\n\n" + "\n\n".join(formatted_results)
-        print("✅ [Debug] 成功獲取搜尋結果")
+        reply_text = "以下係最新嘅 Google 搜尋結果，請根據這些資訊總結並回答老闆：\n\n" + "\n\n".join(formatted_results)
+        print("✅ [Debug] 成功獲取 Google 搜尋結果")
         return reply_text
 
     except Exception as e:
-        print(f"❌ [Debug] 搜尋出錯：{str(e)}")
+        print(f"❌ [Debug] Google 搜尋出錯：{str(e)}")
         return f"❌ 網絡搜尋出錯：{str(e)}"
 
 # ================= 工具創建助手 =================
