@@ -6,3 +6,4 @@ apscheduler==3.10.4
 SpeechRecognition==3.10.3
 pydub==0.25.1
 gTTS==2.5.4
+duckduckgo-search
