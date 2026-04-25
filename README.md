@@ -1,4 +1,7 @@
-# 🐵 (悟空智能助理)
+<div align="center">
+  <img src="wukong_logo.png" alt="Wukong Logo" width="200" />
+  <h1>Wukong Agent (悟空智能助理)</h1>
+</div>
 
 這是一個專為香港建築行業 (QS & Rebar Detailer) 量身打造的 Telegram 專屬 AI 助理。基於強大的 Google Gemini 模型開發，具備視覺分析、語音對話、即時網絡搜尋、專業計算與定時排程能力。
 
