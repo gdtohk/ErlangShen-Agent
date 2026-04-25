@@ -1,3 +1,5 @@
+import asyncio
+from duckduckgo_search import DDGS
 import aiohttp
 from skills.scheduler import schedule_daily_weather
 from skills.rebar import calc_rebar_weight
@@ -7,10 +9,8 @@ from skills.reminder import set_reminder
 # ================= 新增：全球天氣查詢函數 =================
 async def get_global_weather(chat_id, context, location):
     """查詢全球天氣的工具函數"""
-    # 加入 Debug 訊息，讓你在終端機能看到 Gemini 到底傳了什麼字過來
     print(f"🌍 [Debug] 準備查詢天氣，Gemini 傳入的城市為：{location}")
     try:
-        # 加入 User-Agent 偽裝成真人 Windows 瀏覽器，避免被封鎖 VPS IP
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         url = f"https://wttr.in/{location}?format=j1"
         
@@ -30,6 +30,32 @@ async def get_global_weather(chat_id, context, location):
     except Exception as e:
         print(f"❌ [Debug] 查詢 {location} 出錯：{str(e)}")
         return f"❌ 查詢出錯：{str(e)}"
+
+# ================= 新增：即時網絡搜尋函數 =================
+async def search_web(chat_id, context, query):
+    """使用 DuckDuckGo 搜尋全球即時資訊與新聞"""
+    print(f"🔍 [Debug] 準備搜尋網絡，關鍵字：{query}")
+    try:
+        def do_search():
+            with DDGS() as ddgs:
+                return list(ddgs.text(query, region='hk-tzh', max_results=10))
+
+        results = await asyncio.to_thread(do_search)
+
+        if not results:
+            return f"❌ 搵唔到關於「{query}」嘅最新資訊。"
+
+        formatted_results = []
+        for r in results:
+            formatted_results.append(f"📰 【{r.get('title', '無標題')}】\n📝 摘要：{r.get('body', '無內容')}")
+
+        reply_text = "以下係最新嘅網絡搜尋結果，請根據這些資訊總結並回答老闆：\n\n" + "\n\n".join(formatted_results)
+        print("✅ [Debug] 成功獲取搜尋結果")
+        return reply_text
+
+    except Exception as e:
+        print(f"❌ [Debug] 搜尋出錯：{str(e)}")
+        return f"❌ 網絡搜尋出錯：{str(e)}"
 
 # ================= 工具創建助手 =================
 def create_tool(func, name, desc, params, required):
@@ -99,8 +125,7 @@ AGENT_TOOLS_REGISTRY = {
         required = ["hour", "minute"]
     ),
 
-    # 工具 5：全球天氣預報 (新增)
-    # 工具 5：全球天氣預報 (強化版)
+    # 工具 5：全球天氣預報
     "get_global_weather": create_tool(
         func = get_global_weather,
         name = "get_global_weather",
@@ -112,6 +137,20 @@ AGENT_TOOLS_REGISTRY = {
             }
         },
         required = ["location"]
+    ), # <--- 注意這裡有一個逗號
+
+    # 工具 6：即時網絡搜尋 (新增)
+    "search_web": create_tool(
+        func = search_web,
+        name = "search_web",
+        desc = "搜尋即時網絡資訊、新聞、事實查核。當老闆詢問「最新新聞」、「今日發生咩事」、「查一下某某即時資料」時調用此工具。",
+        params = {
+            "query": {
+                "type": "string",
+                "description": "搜尋關鍵字，例如：'今日香港新聞', '2026世界盃賽果', 'NVDA 股價'"
+            }
+        },
+        required = ["query"]
     )
 }
 
