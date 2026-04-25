@@ -7,21 +7,28 @@ from skills.reminder import set_reminder
 # ================= 新增：全球天氣查詢函數 =================
 async def get_global_weather(chat_id, context, location):
     """查詢全球天氣的工具函數"""
+    # 加入 Debug 訊息，讓你在終端機能看到 Gemini 到底傳了什麼字過來
+    print(f"🌍 [Debug] 準備查詢天氣，Gemini 傳入的城市為：{location}")
     try:
-        # 使用免 API Key 的 wttr.in 服務 (格式為 JSON)
+        # 加入 User-Agent 偽裝成真人 Windows 瀏覽器，避免被封鎖 VPS IP
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         url = f"https://wttr.in/{location}?format=j1"
+        
         async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
+            async with session.get(url, headers=headers) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     current = data['current_condition'][0]
                     temp = current['temp_C']
                     desc = current['weatherDesc'][0]['value']
-                    # 將英文數據回傳給大腦，Gemini 大腦會自動將它翻譯成廣東話回覆
+                    print(f"✅ [Debug] 成功獲取 {location} 天氣：{temp}°C, {desc}")
                     return f"🌍 {location} 天氣數據：氣溫 {temp}°C，狀況 {desc}。"
                 else:
-                    return f"❌ 暫時連線唔到外國氣象局，查唔到 {location} 嘅天氣。"
+                    error_msg = f"❌ API 拒絕連線 (HTTP {resp.status})，查唔到 {location} 嘅天氣。"
+                    print(f"⚠️ [Debug] {error_msg}")
+                    return error_msg
     except Exception as e:
+        print(f"❌ [Debug] 查詢 {location} 出錯：{str(e)}")
         return f"❌ 查詢出錯：{str(e)}"
 
 # ================= 工具創建助手 =================
@@ -93,6 +100,7 @@ AGENT_TOOLS_REGISTRY = {
     ),
 
     # 工具 5：全球天氣預報 (新增)
+    # 工具 5：全球天氣預報 (強化版)
     "get_global_weather": create_tool(
         func = get_global_weather,
         name = "get_global_weather",
@@ -100,7 +108,7 @@ AGENT_TOOLS_REGISTRY = {
         params = {
             "location": {
                 "type": "string",
-                "description": "城市英文名稱，例如：London, Tokyo, New York"
+                "description": "【極度重要指令】必須將城市名稱翻譯成純英文（例如：Zhaoqing, Tokyo, London），絕不能傳入中文！"
             }
         },
         required = ["location"]
