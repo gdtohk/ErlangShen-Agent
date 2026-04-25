@@ -67,7 +67,8 @@ tmux new -s wukong
 source venv/bin/activate
 # 3. 啟動機器人
 python bot.py
-當看到控制台印出 🚀 Wukong Agent 啟動成功！ 等字樣後，請按下鍵盤的 Ctrl + B 放開，然後按下 D 鍵。這樣就能將機器人完美掛載於背景全天候運行！
+當看到控制台印出 🚀 Wukong Agent 啟動成功！ 等字樣後，請按下鍵盤的 Ctrl + B 放開，然後按下 D 鍵。
+這樣就能將機器人完美掛載於背景全天候運行！
 
 (若未來需要重新進入房間查看日誌或更新代碼，請輸入：tmux attach -t wukong)
 
