@@ -31,9 +31,9 @@ async def schedule_daily_weather(hour: int, minute: int, chat_id: int, context, 
                             data = await response.json()
                             reply = data['choices'][0]['message']['content']
                         else:
-                            reply = f"🌅 老闆早晨！今日天氣匯報：\n\n{weather_data}"
+                            reply = f"🌅 老闆您好！今日天氣匯報：\n\n{weather_data}"
             except:
-                reply = f"🌅 老闆早晨！今日天氣匯報：\n\n{weather_data}"
+                reply = f"🌅 老闆您好！今日天氣匯報：\n\n{weather_data}"
             
             # 3. 發送給老闆
             await ctx.bot.send_message(chat_id=chat_id, text=reply)
