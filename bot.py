@@ -29,6 +29,9 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 API_KEY = os.getenv("API_KEY")
 API_URL = os.getenv("API_URL")
 
+# 新增：動態讀取模型名稱，如果 .env 沒寫，預設使用 gemini-2.5-flash 兜底
+GEMINI_MODEL = os.getenv("MODEL_NAME", "gemini-2.5-flash")
+
 # 安全處理 ALLOWED_USER_ID，如果沒讀到就設為 0 (拒絕所有人)
 _allowed_user_str = os.getenv("ALLOWED_USER_ID")
 ALLOWED_USER_ID = int(_allowed_user_str) if _allowed_user_str else 0
@@ -207,7 +210,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # 發送給大腦 (帶上工具箱)
     payload = {
-        "model": "gemini-3.1-flash-lite-preview", 
+        "model": GEMINI_MODEL,  # <--- 修改點：這裡改為讀取上方的變數
         "messages": user_memory[user_id],
         "tools": GET_TOOLS_LIST,
         "tool_choice": "auto"
