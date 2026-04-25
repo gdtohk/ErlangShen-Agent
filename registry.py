@@ -1,6 +1,6 @@
 import asyncio
-from duckduckgo_search import DDGS
 import aiohttp
+from playwright.async_api import async_playwright
 from skills.scheduler import schedule_daily_weather
 from skills.rebar import calc_rebar_weight
 from skills.weather import get_hk_weather_detailed
@@ -31,33 +31,52 @@ async def get_global_weather(chat_id, context, location):
         print(f"❌ [Debug] 查詢 {location} 出錯：{str(e)}")
         return f"❌ 查詢出錯：{str(e)}"
 
-# ================= 新增：即時網絡搜尋函數 (DDG 穩定版) =================
+# ================= 新增：即時網絡搜尋函數 (Playwright 真實瀏覽器版) =================
 async def search_web(chat_id, context, query):
-    """使用 DuckDuckGo 搜尋全球即時資訊與新聞"""
-    print(f"🔍 [Debug] 準備使用 DuckDuckGo 搜尋網絡，關鍵字：{query}")
+    """悟空接管真實 Chromium 瀏覽器進行 Google 搜尋"""
+    print(f"🌐 [Debug] 啟動真實瀏覽器搜尋，關鍵字：{query}")
     try:
-        def do_search():
-            with DDGS() as ddgs:
-                # 移除 region 限制，確保全球各國新聞都能獲取
-                return list(ddgs.text(query, max_results=5))
+        async with async_playwright() as p:
+            # 啟動無頭瀏覽器
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            )
+            
+            # 轉為 URL 格式前往 Google
+            formatted_query = query.replace(' ', '+')
+            url = f"https://www.google.com/search?q={formatted_query}&hl=zh-HK"
+            
+            await page.goto(url, wait_until="domcontentloaded")
+            
+            try:
+                await page.wait_for_selector("div.g", timeout=5000)
+            except:
+                print("⚠️ [Debug] 找不到標準搜尋結果，可能遇到驗證碼或版面不同")
 
-        results = await asyncio.to_thread(do_search)
+            results = []
+            elements = await page.query_selector_all("div.g")
+            
+            for el in elements[:5]:
+                title_el = await el.query_selector("h3")
+                if title_el:
+                    title = await title_el.inner_text()
+                    full_text = await el.inner_text()
+                    desc = full_text.replace(title, '').strip()
+                    results.append(f"📰 【{title}】\n📝 內容：{desc}")
 
-        if not results:
-            print(f"⚠️ [Debug] DDG 回傳空白結果")
-            return f"❌ 搵唔到關於「{query}」嘅最新資訊。"
+            await browser.close()
 
-        formatted_results = []
-        for r in results:
-            formatted_results.append(f"📰 【{r.get('title', '無標題')}】\n📝 摘要：{r.get('body', '無內容')}")
+            if not results:
+                return f"❌ 瀏覽器搵唔到關於「{query}」嘅資訊，可能俾 Google 擋咗。"
 
-        reply_text = "以下係最新嘅網絡搜尋結果，請根據這些資訊總結並回答老闆：\n\n" + "\n\n".join(formatted_results)
-        print("✅ [Debug] 成功獲取 DuckDuckGo 搜尋結果")
-        return reply_text
+            reply_text = "以下係悟空親自用瀏覽器上網抓取嘅最新結果，請總結後回答老闆：\n\n" + "\n\n".join(results)
+            print("✅ [Debug] 成功使用真實瀏覽器獲取結果")
+            return reply_text
 
     except Exception as e:
-        print(f"❌ [Debug] DDG 搜尋出錯：{str(e)}")
-        return f"❌ 網絡搜尋出錯：{str(e)}"
+        print(f"❌ [Debug] 瀏覽器執行出錯：{str(e)}")
+        return f"❌ 瀏覽器執行出錯：{str(e)}"
 
 # ================= 工具創建助手 =================
 def create_tool(func, name, desc, params, required):
@@ -141,7 +160,7 @@ AGENT_TOOLS_REGISTRY = {
         required = ["location"]
     ),
 
-    # 工具 6：即時網絡搜尋 (打破時空版)
+    # 工具 6：即時網絡搜尋 (Playwright 瀏覽器版 + 打破時空緊箍咒)
     "search_web": create_tool(
         func = search_web,
         name = "search_web",
@@ -149,7 +168,7 @@ AGENT_TOOLS_REGISTRY = {
         params = {
             "query": {
                 "type": "string",
-                "description": "【極度重要指令】1. 不要加入年份或日期。2. 由於系統時差原因，搜尋傳回的新聞可能是2024年的，請務必無視年份差異，直接將結果當作『今日最新新聞』向老闆匯報，絕對不要回答『因為是未來日子所以找不到新聞』！"
+                "description": "【極度重要指令】1. 不要加入年份或日期。2. 由於系統時差原因，搜尋傳回的新聞可能是舊的，請務必無視年份差異，直接將結果當作『今日最新新聞』向老闆匯報，絕對不要回答『因為是未來日子所以找不到新聞』！"
             }
         },
         required = ["query"]
