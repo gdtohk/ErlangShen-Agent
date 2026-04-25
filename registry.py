@@ -1,5 +1,5 @@
 import asyncio
-from googlesearch import search
+from duckduckgo_search import DDGS
 import aiohttp
 from skills.scheduler import schedule_daily_weather
 from skills.rebar import calc_rebar_weight
@@ -31,30 +31,32 @@ async def get_global_weather(chat_id, context, location):
         print(f"❌ [Debug] 查詢 {location} 出錯：{str(e)}")
         return f"❌ 查詢出錯：{str(e)}"
 
-# ================= 新增：即時網絡搜尋函數 (Google 版) =================
+# ================= 新增：即時網絡搜尋函數 (DDG 穩定版) =================
 async def search_web(chat_id, context, query):
-    """使用 Google 搜尋全球即時資訊與新聞"""
-    print(f"🔍 [Debug] 準備使用 Google 搜尋網絡，關鍵字：{query}")
+    """使用 DuckDuckGo 搜尋全球即時資訊與新聞"""
+    print(f"🔍 [Debug] 準備使用 DuckDuckGo 搜尋網絡，關鍵字：{query}")
     try:
         def do_search():
-            # advanced=True 可以攞埋新聞標題同摘要，lang="zh-HK" 優先出香港繁體內容
-            return list(search(query, num_results=10, advanced=True, lang="zh-HK", region="hk"))
+            with DDGS() as ddgs:
+                # 移除 region 限制，確保全球各國新聞都能獲取
+                return list(ddgs.text(query, max_results=5))
 
         results = await asyncio.to_thread(do_search)
 
         if not results:
-            return f"❌ 喺 Google 搵唔到關於「{query}」嘅最新資訊。"
+            print(f"⚠️ [Debug] DDG 回傳空白結果")
+            return f"❌ 搵唔到關於「{query}」嘅最新資訊。"
 
         formatted_results = []
         for r in results:
-            formatted_results.append(f"📰 【{r.title}】\n📝 摘要：{r.description}")
+            formatted_results.append(f"📰 【{r.get('title', '無標題')}】\n📝 摘要：{r.get('body', '無內容')}")
 
-        reply_text = "以下係最新嘅 Google 搜尋結果，請根據這些資訊總結並回答老闆：\n\n" + "\n\n".join(formatted_results)
-        print("✅ [Debug] 成功獲取 Google 搜尋結果")
+        reply_text = "以下係最新嘅網絡搜尋結果，請根據這些資訊總結並回答老闆：\n\n" + "\n\n".join(formatted_results)
+        print("✅ [Debug] 成功獲取 DuckDuckGo 搜尋結果")
         return reply_text
 
     except Exception as e:
-        print(f"❌ [Debug] Google 搜尋出錯：{str(e)}")
+        print(f"❌ [Debug] DDG 搜尋出錯：{str(e)}")
         return f"❌ 網絡搜尋出錯：{str(e)}"
 
 # ================= 工具創建助手 =================
