@@ -47,15 +47,16 @@ nano .env
 將以下內容貼入編輯器中，並替換為你自己的專屬數值：
 Plaintext
 TELEGRAM_TOKEN=你的_Telegram_Bot_Token
-API_KEY=你的_API_Key
+API_KEY=你的_Gemini_API_Key
 API_URL=你的_API_中轉地址_或_官方地址
 ALLOWED_USER_ID=你的_Telegram_使用者ID
-BOT_NAME=Wukong（可隨意填寫）
-OWNER_NAME=HO（可隨意填寫）
-OWNER_ROLE=Rebar Detailer and QS（可隨意填寫）
-TIMEZONE=Asia/Hong_Kong（英語填寫：洲/城市）
-LOCATION=Hong Kong（英語填寫：城市）
-MODEL_NAME=gemini-2.5-pro（你的模型名稱）
+# --- 以下為個性化設定 ---
+BOT_NAME=Wukong                # (可隨意填寫)
+OWNER_NAME=HO                  # (可隨意填寫)
+OWNER_ROLE=Rebar Detailer and QS # (可隨意填寫)
+TIMEZONE=Asia/Hong_Kong        # (英語填寫：洲/城市，必填且格式必須正確)
+LOCATION=Hong Kong             # (英語填寫：城市)
+MODEL_NAME=gemini-2.5-pro      # (你的模型名稱)
 (提示：在 nano 編輯器中按 Ctrl+O 存檔，按 Enter 確認，再按 Ctrl+X 離開。)
 
 Step 4: 背景常駐運行 (使用 tmux)
