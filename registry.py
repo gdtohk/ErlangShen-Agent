@@ -1,6 +1,6 @@
 import asyncio
 import aiohttp
-from playwright.async_api import async_playwright
+import xml.etree.ElementTree as ET
 from skills.scheduler import schedule_daily_weather
 from skills.rebar import calc_rebar_weight
 from skills.weather import get_hk_weather_detailed
@@ -31,52 +31,49 @@ async def get_global_weather(chat_id, context, location):
         print(f"❌ [Debug] 查詢 {location} 出錯：{str(e)}")
         return f"❌ 查詢出錯：{str(e)}"
 
-# ================= 新增：即時網絡搜尋函數 (Playwright 真實瀏覽器版) =================
+# ================= 新增：即時網絡搜尋函數 (Google News RSS 防封鎖版) =================
 async def search_web(chat_id, context, query):
-    """悟空接管真實 Chromium 瀏覽器進行 Google 搜尋"""
-    print(f"🌐 [Debug] 啟動真實瀏覽器搜尋，關鍵字：{query}")
+    """使用 Google News RSS 獲取全球即時新聞，絕對防封鎖"""
+    print(f"🔍 [Debug] 準備使用 Google News RSS 搜尋，關鍵字：{query}")
     try:
-        async with async_playwright() as p:
-            # 啟動無頭瀏覽器
-            browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            )
-            
-            # 轉為 URL 格式前往 Google
-            formatted_query = query.replace(' ', '+')
-            url = f"https://www.google.com/search?q={formatted_query}&hl=zh-HK"
-            
-            await page.goto(url, wait_until="domcontentloaded")
-            
-            try:
-                await page.wait_for_selector("div.g", timeout=5000)
-            except:
-                print("⚠️ [Debug] 找不到標準搜尋結果，可能遇到驗證碼或版面不同")
+        # 將關鍵字中的空格轉換為 URL 格式
+        formatted_query = query.replace(' ', '+')
+        # Google News RSS 官方連結 (hl=zh-HK 代表繁體中文)
+        url = f"https://news.google.com/rss/search?q={formatted_query}&hl=zh-HK&gl=HK&ceid=HK:zh-Hant"
+        
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
 
-            results = []
-            elements = await page.query_selector_all("div.g")
-            
-            for el in elements[:5]:
-                title_el = await el.query_selector("h3")
-                if title_el:
-                    title = await title_el.inner_text()
-                    full_text = await el.inner_text()
-                    desc = full_text.replace(title, '').strip()
-                    results.append(f"📰 【{title}】\n📝 內容：{desc}")
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers) as resp:
+                if resp.status != 200:
+                    print(f"⚠️ [Debug] RSS 拒絕連線: {resp.status}")
+                    return f"❌ 網絡拒絕連線 (HTTP {resp.status})。"
 
-            await browser.close()
+                # 讀取 XML 數據
+                xml_data = await resp.text()
+                
+                # 解析 XML 結構
+                root = ET.fromstring(xml_data)
+                items = root.findall('.//item')
 
-            if not results:
-                return f"❌ 瀏覽器搵唔到關於「{query}」嘅資訊，可能俾 Google 擋咗。"
+                if not items:
+                    print(f"⚠️ [Debug] RSS 回傳空白結果")
+                    return f"❌ 搵唔到關於「{query}」嘅最新資訊。"
 
-            reply_text = "以下係悟空親自用瀏覽器上網抓取嘅最新結果，請總結後回答老闆：\n\n" + "\n\n".join(results)
-            print("✅ [Debug] 成功使用真實瀏覽器獲取結果")
-            return reply_text
+                formatted_results = []
+                # 提取最頂部的 5 條新聞
+                for item in items[:5]:
+                    title = item.findtext('title')
+                    pubDate = item.findtext('pubDate')
+                    formatted_results.append(f"📰 【{title}】\n🕒 時間：{pubDate}")
+
+                reply_text = "以下係最新嘅 Google News 搜尋結果，請根據這些資訊總結並回答老闆：\n\n" + "\n\n".join(formatted_results)
+                print("✅ [Debug] 成功獲取 Google News RSS 結果")
+                return reply_text
 
     except Exception as e:
-        print(f"❌ [Debug] 瀏覽器執行出錯：{str(e)}")
-        return f"❌ 瀏覽器執行出錯：{str(e)}"
+        print(f"❌ [Debug] RSS 搜尋出錯：{str(e)}")
+        return f"❌ 網絡搜尋出錯：{str(e)}"
 
 # ================= 工具創建助手 =================
 def create_tool(func, name, desc, params, required):
@@ -160,7 +157,7 @@ AGENT_TOOLS_REGISTRY = {
         required = ["location"]
     ),
 
-    # 工具 6：即時網絡搜尋 (Playwright 瀏覽器版 + 打破時空緊箍咒)
+    # 工具 6：即時網絡搜尋 (Google News RSS 防封鎖版 + 打破時空緊箍咒)
     "search_web": create_tool(
         func = search_web,
         name = "search_web",
