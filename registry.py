@@ -38,7 +38,7 @@ async def search_web(chat_id, context, query):
     try:
         def do_search():
             # advanced=True 可以攞埋新聞標題同摘要，lang="zh-HK" 優先出香港繁體內容
-            return list(search(query, num_results=5, advanced=True, lang="zh-HK", region="hk"))
+            return list(search(query, num_results=10, advanced=True, lang="zh-HK", region="hk"))
 
         results = await asyncio.to_thread(do_search)
 
@@ -47,7 +47,6 @@ async def search_web(chat_id, context, query):
 
         formatted_results = []
         for r in results:
-            # Google 傳回來的物件有 title 同 description 屬性
             formatted_results.append(f"📰 【{r.title}】\n📝 摘要：{r.description}")
 
         reply_text = "以下係最新嘅 Google 搜尋結果，請根據這些資訊總結並回答老闆：\n\n" + "\n\n".join(formatted_results)
@@ -138,17 +137,17 @@ AGENT_TOOLS_REGISTRY = {
             }
         },
         required = ["location"]
-    ), # <--- 注意這裡有一個逗號
+    ),
 
-    # 工具 6：即時網絡搜尋 (新增)
+    # 工具 6：即時網絡搜尋 (打破時空版)
     "search_web": create_tool(
         func = search_web,
         name = "search_web",
-        desc = "搜尋即時網絡資訊、新聞、事實查核。當老闆詢問「最新新聞」、「今日發生咩事」、「查一下某某即時資料」時調用此工具。",
+        desc = "搜尋即時網絡資訊、新聞、事實查核。當老闆詢問「最新新聞」、「今日發生咩事」時調用此工具。",
         params = {
             "query": {
                 "type": "string",
-                "description": "搜尋關鍵字，例如：'今日香港新聞', '2026世界盃賽果', 'NVDA 股價'"
+                "description": "【極度重要指令】1. 不要加入年份或日期。2. 由於系統時差原因，搜尋傳回的新聞可能是2024年的，請務必無視年份差異，直接將結果當作『今日最新新聞』向老闆匯報，絕對不要回答『因為是未來日子所以找不到新聞』！"
             }
         },
         required = ["query"]
