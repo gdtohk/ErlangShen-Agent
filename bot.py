@@ -210,7 +210,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # 發送給大腦 (帶上工具箱)
     payload = {
-        "model": GEMINI_MODEL,  # <--- 修改點：這裡改為讀取上方的變數
+        "model": GEMINI_MODEL,
         "messages": user_memory[user_id],
         "tools": GET_TOOLS_LIST,
         "tool_choice": "auto"
@@ -264,7 +264,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # 👄 判斷回覆方式：文字 or 語音
                 await update.message.reply_text(final_reply)
 
-                # 如果老闆是用語音問的，悟空就用語音回答！
+                # 如果老闆是用語音問的，二郎神就用語音回答！
                 if is_voice_mode:
                     await context.bot.send_chat_action(chat_id=chat_id, action='record_voice')
                     try:
