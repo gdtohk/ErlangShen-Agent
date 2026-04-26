@@ -15,10 +15,16 @@ async def schedule_daily_weather(hour: int, minute: int, chat_id: int, context, 
             # 2. 讓大腦自己生成每天不同的早晨問候 (自我對話機制)
             API_KEY = os.getenv("API_KEY")
             API_URL = os.getenv("API_URL")
+            
+            # 動態讀取 .env 設定，徹底消除 Hardcode
+            GEMINI_MODEL = os.getenv("MODEL_NAME", "gemini-2.5-flash")
+            BOT_NAME = os.getenv("BOT_NAME", "ErlangShen Agent")
+            OWNER_NAME = os.getenv("OWNER_NAME", "老闆")
+            
             payload = {
-                "model": "gemini-2.5-flash",
+                "model": GEMINI_MODEL,
                 "messages": [
-                    {"role": "system", "content": "你是悟空(Wukong)，何生的專屬智能助理。請根據以下天氣數據，寫一段大約150字的廣東話早晨問候，提醒他今日和未來幾天的天氣變化、帶傘或穿衣。語氣要精神、貼心、專業。"},
+                    {"role": "system", "content": f"你是{BOT_NAME}，{OWNER_NAME}的專屬智能助理。請根據以下天氣數據，寫一段大約150字的廣東話早晨問候，提醒他今日和未來幾天的天氣變化、帶傘或穿衣。語氣要精神、貼心、專業。"},
                     {"role": "user", "content": weather_data}
                 ]
             }
@@ -31,9 +37,9 @@ async def schedule_daily_weather(hour: int, minute: int, chat_id: int, context, 
                             data = await response.json()
                             reply = data['choices'][0]['message']['content']
                         else:
-                            reply = f"🌅 老闆您好！今日天氣匯報：\n\n{weather_data}"
+                            reply = f"🌅 {OWNER_NAME}您好！今日天氣匯報：\n\n{weather_data}"
             except:
-                reply = f"🌅 老闆您好！今日天氣匯報：\n\n{weather_data}"
+                reply = f"🌅 {OWNER_NAME}您好！今日天氣匯報：\n\n{weather_data}"
             
             # 3. 發送給老闆
             await ctx.bot.send_message(chat_id=chat_id, text=reply)
