@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="wukong_logo.png" alt="Wukong Logo" width="200" />
+  <img src="ErlangShen_logo.png" alt="ErlangShen Logo" width="200" />
   <h1>ErlangShen Agent (二郎神AI助理)</h1>
 </div>
 
@@ -30,7 +30,7 @@ Step 2: 下載專案與建立虛擬環境
 將代碼庫克隆到伺服器，並建立獨立的 Python 虛擬環境以避免套件衝突：
 Bash
 # 1. 複製專案到本地
-git clone [https://github.com/gdtohk/ErlangShen-Agent.git](https://github.com/gdtohk/ErlangShen-Agent.git)
+git clone https://github.com/gdtohk/ErlangShen-Agent.git
 cd ErlangShen-Agent
 # 2. 建立名為 venv 的虛擬環境
 python3 -m venv venv
@@ -51,10 +51,10 @@ API_KEY=你的_Gemini_API_Key
 API_URL=你的_API_中轉地址_或_官方地址
 ALLOWED_USER_ID=你的_Telegram_使用者ID
 # --- 以下為個性化設定 ---
-BOT_NAME=ErlangShen                   # (可隨意填寫)
+BOT_NAME=ErlangShen               # (可隨意填寫)
 OWNER_NAME=HO                     # (可隨意填寫)
 OWNER_ROLE=Rebar Detailer and QS  # (可隨意填寫)
-TIMEZONE=Asia/Hong_Kong           # (英語填寫：洲/城市，必填且格式必須正確)
+TIMEZONE=Asia/Hong_Kong           # (英語填寫：洲/城市，必填)
 LOCATION=Hong Kong                # (英語填寫：城市)
 MODEL_NAME=gemini-2.5-pro         # (你的模型名稱)
 (提示：在 nano 編輯器中按 Ctrl+O 存檔，按 Enter 確認，再按 Ctrl+X 離開。)
