@@ -4,6 +4,8 @@ import base64
 import logging
 import aiohttp
 import datetime
+import pandas as pd
+import fitz  # PyMuPDF
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 from telegram import Update
@@ -56,11 +58,12 @@ MAX_HISTORY = 10
 SYSTEM_PROMPT = f"""
 你是{BOT_NAME}，{OWNER_NAME}（{LOCATION}{OWNER_ROLE}）的專屬智能代理。
 請用繁體中文（適當夾雜地道廣東話）回答。
-你具備視覺能力（可看工程圖紙）和工具調用能力（可計算數據、查天氣、設定排程）。
+你具備視覺能力（可看工程圖紙）、閱讀工程文件 (PDF/Excel) 和工具調用能力（可計算數據、查天氣、設定排程）。
 
 【🤖 你的核心能力認知】：
 1. 你「完全具備」語音對話能力！老闆發送語音時，系統會轉成文字給你；你的文字回覆也會自動轉成廣東話語音發送給老闆。
 2. 如果老闆問「你有收到語音嗎」或「你會語音對話嗎」，請自信回答「有」或「會」。千萬不要回答你只支援文字！
+3. 老闆會傳送 PDF 或 Excel 給你。你收到的檔案內容會以文字或 Markdown 表格形式呈現。請仔細分析文件中的數據並回答問題。
 
 如果需要運算或設定定時任務，請務必調用對應工具。
 (注意：如果老闆用語音發問，請盡量簡短扼要回答，方便語音播報)
@@ -187,7 +190,47 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ 圖片處理失敗：{str(e)}")
             return
 
-    # ✍️ 3. 解析 Telegram 輸入：如果收到的是純「文字」
+    # 📑 3. 🆕 新增：解析 Telegram 輸入：如果收到的是「文件 (PDF / Excel)」
+    elif update.message.document:
+        await context.bot.send_chat_action(chat_id=chat_id, action='typing')
+        doc = update.message.document
+        file_name = doc.file_name
+        file_ext = os.path.splitext(file_name)[1].lower()
+        
+        status_msg = await update.message.reply_text(f"📑 收到文件，正在閱讀：{file_name}...")
+        
+        file = await doc.get_file()
+        current_file_path = f"temp_{doc.file_id}{file_ext}"
+        await file.download_to_drive(current_file_path)
+        
+        extracted_text = ""
+        try:
+            if file_ext == '.pdf':
+                with fitz.open(current_file_path) as pdf:
+                    for page in pdf:
+                        extracted_text += page.get_text()
+                extracted_content = f"--- PDF 文件內容「{file_name}」---\n\n{extracted_text}"
+            
+            elif file_ext in ['.xlsx', '.xls']:
+                df = pd.read_excel(current_file_path)
+                extracted_text = df.to_markdown(index=False)
+                extracted_content = f"--- Excel 數據表「{file_name}」---\n\n{extracted_text}"
+            
+            else:
+                await status_msg.edit_text(f"❌ 暫時未支援 {file_ext} 格式。請改用 PDF 或 Excel 呀老闆！")
+                return
+            
+            user_question = update.message.caption or "請幫我分析這份文件。"
+            content_payload = f"【老闆的問題】：{user_question}\n\n{extracted_content}"
+            await status_msg.edit_text("✅ 文件讀完啦，等我諗下點答你...")
+
+        except Exception as e:
+            await status_msg.edit_text(f"❌ 解析文件失敗：{str(e)}")
+            return
+        finally:
+            if os.path.exists(current_file_path): os.remove(current_file_path)
+
+    # ✍️ 4. 解析 Telegram 輸入：如果收到的是純「文字」
     else:
         await context.bot.send_chat_action(chat_id=chat_id, action='typing')
         content_payload = update.message.text or ""
@@ -257,7 +300,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         user_memory[user_id].append({"role": "assistant", "content": final_reply})
 
                 else:
-                    # 如果不需要用工具 (普通聊天或看圖片)
+                    # 如果不需要用工具 (普通聊天或看圖片/文件)
                     final_reply = response_message.get('content', "我唔太明白。")
                     user_memory[user_id].append({"role": "assistant", "content": final_reply})
 
@@ -290,14 +333,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
-    # ✅ 加入了 filters.VOICE，這樣它才不會無視你的語音訊息
-    app.add_handler(MessageHandler(filters.TEXT | filters.PHOTO | filters.VOICE, handle_message))
+    # ✅ 關鍵修改：加入了 filters.Document.ALL，讓它可以接收檔案
+    app.add_handler(MessageHandler(filters.TEXT | filters.PHOTO | filters.VOICE | filters.Document.ALL, handle_message))
     
     # ⏰ 鬧鐘會根據 .env 設定的時區，在當地的 05:30 觸發
     t = datetime.time(hour=5, minute=30, tzinfo=ZoneInfo(TIMEZONE_STR))
     app.job_queue.run_daily(daily_morning_report, t)
     
-    print(f"🚀 {BOT_NAME} Agent 啟動成功！已載入時區：{TIMEZONE_STR}，地點：{LOCATION}")
+    print(f"🚀 {BOT_NAME} Agent 啟動成功！已支援 PDF & Excel 閱讀。")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
