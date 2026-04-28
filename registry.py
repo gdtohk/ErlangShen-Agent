@@ -5,6 +5,7 @@ from skills.scheduler import schedule_daily_weather
 from skills.rebar import calc_rebar_weight
 from skills.weather import get_hk_weather_detailed
 from skills.reminder import set_reminder
+from skills.system_ops import update_from_github
 
 # ================= 新增：全球天氣查詢函數 =================
 async def get_global_weather(chat_id, context, location):
@@ -169,6 +170,15 @@ AGENT_TOOLS_REGISTRY = {
             }
         },
         required = ["query"]
+    ),
+    
+    # 工具 7：系統更新 (Git Pull)
+    "update_from_github": create_tool(
+        func = update_from_github,
+        name = "update_from_github",
+        desc = "從 GitHub 拉取最新程式碼更新。當老闆要求「更新系統」、「拉取最新代碼」、「git pull」或「檢查更新」時調用。",
+        params = {},
+        required = []
     )
 }
 
