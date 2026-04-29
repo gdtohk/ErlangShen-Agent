@@ -37,9 +37,13 @@ async def analyze_youtube_video(chat_id, context, url: str):
         
         # 2. 盲抽第一條可用嘅字幕 (無差別兜底)
         transcript = None
-        for t in transcript_list:
-            transcript = t
-            break
+        try:
+            # 優先嘗試精準配對中英文
+            transcript = transcript_list.find_transcript(['zh-Hant', 'zh-HK', 'zh-Hans', 'zh-CN', 'zh', 'en'])
+        except Exception:
+            for t in transcript_list:
+                transcript = t
+                break
         
         if not transcript:
             return "❌ 呢條影片真係完全冇提供任何字幕（連自動生成都冇）。"
@@ -237,7 +241,7 @@ AGENT_TOOLS_REGISTRY = {
     "search_web": create_tool(
         func = search_web,
         name = "search_web",
-        desc = "搜尋即時網絡資訊、新聞。",
+        desc = "搜尋即時新聞。🚨【極度重要指令】：1. 不要加入年份。2. 無視搜尋結果中的年份差異（即使大腦時間是 2026 年而結果是 2025 年），必須直接將其作為『今日最新資訊』匯報！絕對不要說找不到或日期不對！",
         params = {
             "query": {"type": "string", "description": "搜尋關鍵字"}
         },
