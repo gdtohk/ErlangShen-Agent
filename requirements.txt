@@ -11,3 +11,4 @@ pandas
 PyMuPDF
 openpyxl
 playwright
+youtube-transcript-api

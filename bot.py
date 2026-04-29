@@ -50,32 +50,22 @@ MAX_HISTORY = 10
 SYSTEM_PROMPT = f"""
 你是{BOT_NAME}，{OWNER_NAME}（{LOCATION}{OWNER_ROLE}）的專屬智能代理。
 請用繁體中文（適當夾雜地道廣東話）回答。
-你具備視覺能力（可看工程圖紙）、閱讀工程文件 (PDF/Excel) 和工具調用能力（可計算數據、查天氣、設定排程）。
 
 【🤖 你的核心能力認知】：
-1. 你「完全具備」語音對話能力！老闆發送語音時，系統會轉成文字給你；你的文字回覆也會自動轉成廣東話語音發送給老闆。
-2. 如果老闆問「你有收到語音嗎」或「你會語音對話嗎」，請自信回答「有」或「會」。千萬不要回答你只支援文字！
-3. 老闆會傳送 PDF 或 Excel 給你。你收到的檔案內容會以文字或 Markdown 表格形式呈現。請仔細分析文件中的數據並回答問題。
-4. 🌐 你「具備聯網瀏覽能力」！如果老闆給你一個網址，或者要求你上網查閱最新網頁資訊，請立刻調用 `browse_website` 工具去抓取資料，不要說你無法上網！
+1. 具備語音能力：老闆發語音你會聽，你亦會回傳語音。
+2. 具備視覺能力：可分析圖片、PDF、Excel 表格。
+3. 🌐 具備「網頁截圖」與「影片解讀」能力：
+   - 當老闆要求總結 YouTube 影片，請立刻調用 `analyze_youtube_video` 工具獲取字幕文本，然後總結。不要再說你無法看影片。
+   - 當調用 `browse_website` 工具時，系統會自動擷取網頁的截圖傳送給你，請你結合截圖畫面與文字數據進行深入的視覺分析。
 
 【🛑 核心工作守則：PLAN (思考計劃模式)】
-當老闆交給你的任務比較複雜（例如分析長篇文件、計算大量數據、或者需要連續調用多個工具）時，你必須先在心裡建立一個計劃。
-在你的回覆中，請先使用以下格式向老闆匯報你的步驟：
+任務複雜時，請先使用以下格式匯報步驟：
 📋 **施工方案：**
 1. 我會先做...
-2. 然後我會...
-3. 最後得出...
-(列出步驟後，再實際給出最終答案或調用工具)。
-如果任務很簡單（例如問天氣、簡單問候），則不需要列出施工方案，直接回答即可。
+2. 最後得出...
 
-【🛠️ 系統除錯模式 (Systematic Debugging)】
-當老闆貼上一段程式碼的錯誤信息 (Error Traceback) 或詢問 Bug 時，你必須強制按照以下 4 個步驟回覆，協助老闆學習：
-1. 🚨 **發生咩事**：用一句簡單的話總結這個 Error 是什麼意思。
-2. 📍 **邊行出錯**：指出具體是哪一段或哪一類代碼引發的。
-3. 🕵️ **點解出錯**：解釋出錯的底層原因。
-4. 🔧 **修正方案**：提供修改後的完整代碼，並清楚說明改了什麼。
-
-如果需要運算或設定定時任務，請務必調用對應工具。
+【🛠️ 系統除錯模式】
+貼出 Bug 時，強制 4 步回覆：1.🚨發生咩事 2.📍邊行出錯 3.🕵️點解出錯 4.🔧修正方案
 """
 
 async def daily_morning_report(context: ContextTypes.DEFAULT_TYPE):
@@ -229,10 +219,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         content_payload = update.message.text or ""
 
     local_time = datetime.datetime.now(ZoneInfo(TIMEZONE_STR))
-    weekdays_tc = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
-    weekday_str = weekdays_tc[local_time.weekday()]
-    
-    current_time_str = local_time.strftime(f"%Y年%m月%d日 %H:%M ({weekday_str})")
+    current_time_str = local_time.strftime(f"%Y年%m月%d日 %H:%M")
     dynamic_system_prompt = SYSTEM_PROMPT + f"\n\n【系統強制注入】：現在的準確當地時間是 {current_time_str}。"
 
     if user_id not in user_memory:
@@ -273,12 +260,37 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             target_func = AGENT_TOOLS_REGISTRY[func_name]["func"]
                             result = await target_func(chat_id=chat_id, context=context, **args)
                             
-                            user_memory[user_id].append({
-                                "role": "tool",
-                                "tool_call_id": tool_call['id'],
-                                "name": func_name,
-                                "content": str(result)
-                            })
+                            # 🚨 攔截並注入網頁截圖 (Image Injection Protocol)
+                            is_screenshot = False
+                            try:
+                                result_dict = json.loads(str(result))
+                                if isinstance(result_dict, dict) and result_dict.get("type") == "webpage_with_screenshot":
+                                    user_memory[user_id].append({
+                                        "role": "tool",
+                                        "tool_call_id": tool_call['id'],
+                                        "name": func_name,
+                                        "content": f"成功訪問【{result_dict['title']}】並已擷取截圖，截圖將在下一條訊息提供供視覺分析。"
+                                    })
+                                    # 偽裝成 User 訊息把截圖餵給大腦
+                                    user_memory[user_id].append({
+                                        "role": "user",
+                                        "content": [
+                                            {"type": "text", "text": f"（系統提示：這是一張由系統自動擷取的網頁截圖，輔助備用文字內容為：\n{result_dict['text']}\n\n請結合截圖與文字進行深度視覺分析。）"},
+                                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{result_dict['image_base64']}"}}
+                                        ]
+                                    })
+                                    is_screenshot = True
+                            except Exception:
+                                pass
+                                
+                            # 如果不是截圖，就當作普通文字 Tool 結果處理
+                            if not is_screenshot:
+                                user_memory[user_id].append({
+                                    "role": "tool",
+                                    "tool_call_id": tool_call['id'],
+                                    "name": func_name,
+                                    "content": str(result)
+                                })
                     
                     payload["messages"] = user_memory[user_id]
                     payload.pop("tools", None)
@@ -324,7 +336,7 @@ def main():
     t = datetime.time(hour=5, minute=30, tzinfo=ZoneInfo(TIMEZONE_STR))
     app.job_queue.run_daily(daily_morning_report, t)
     
-    print(f"🚀 {BOT_NAME} Agent 啟動成功！已支援 PDF & Excel 閱讀。")
+    print(f"🚀 {BOT_NAME} Agent 啟動成功！已支援 YouTube & 視覺截圖解析。")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':

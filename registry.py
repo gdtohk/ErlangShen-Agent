@@ -3,12 +3,49 @@ import asyncio
 import aiohttp
 import xml.etree.ElementTree as ET
 from playwright.async_api import async_playwright
+import json
+import base64
+import urllib.parse
+from youtube_transcript_api import YouTubeTranscriptApi
 
 from skills.scheduler import schedule_daily_weather
 from skills.rebar import calc_rebar_weight
 from skills.weather import get_hk_weather_detailed
 from skills.reminder import set_reminder
 from skills.system_ops import update_from_github
+
+# ================= 新增：YouTube 影片字幕提取 =================
+async def analyze_youtube_video(chat_id, context, url: str):
+    """獲取 YouTube 影片的字幕/文字稿"""
+    print(f"📺 [Debug] 準備獲取 YouTube 字幕：{url}")
+    try:
+        # 提取 Video ID
+        parsed_url = urllib.parse.urlparse(url)
+        if 'youtube.com' in parsed_url.netloc:
+            video_id = urllib.parse.parse_qs(parsed_url.query).get('v', [None])[0]
+        elif 'youtu.be' in parsed_url.netloc:
+            video_id = parsed_url.path.lstrip('/')
+        else:
+            return "❌ 無效的 YouTube 網址。"
+
+        if not video_id:
+            return "❌ 無法從網址中提取 Video ID。"
+
+        # 獲取字幕 (優先抓取繁體/簡體中文，英文兜底)
+        transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['zh-Hant', 'zh-HK', 'zh-Hans', 'zh-CN', 'en'])
+        
+        # 將字幕組合成完整文字
+        full_text = " ".join([entry['text'] for entry in transcript_list])
+        
+        # 截斷保護 (避免超過大模型 token 限制，大約保留 15000 字)
+        safe_text = full_text[:15000] 
+        
+        print(f"✅ [Debug] 成功獲取 YouTube 字幕，長度：{len(safe_text)}")
+        return f"影片字幕提取成功！請根據以下內容進行總結或回答：\n\n{safe_text}"
+    except Exception as e:
+        error_msg = f"無法獲取字幕 (可能影片未提供字幕，或者被區域限制)：{str(e)}"
+        print(f"❌ [Debug] {error_msg}")
+        return error_msg
 
 # ================= 新增：全球天氣查詢函數 =================
 async def get_global_weather(chat_id, context, location):
@@ -72,17 +109,16 @@ async def search_web(chat_id, context, query):
         print(f"❌ [Debug] RSS 搜尋出錯：{str(e)}")
         return f"❌ 網絡搜尋出錯：{str(e)}"
 
-# ================= 新增：標準 Playwright 網頁瀏覽函數 =================
+# ================= 升級：具備截圖功能之 Playwright 網頁瀏覽函數 =================
 async def browse_website_with_playwright(chat_id, context, url: str):
-    """
-    使用 Playwright 標準無頭瀏覽器訪問網頁並提取純文字內容
-    """
-    print(f"🌐 [Debug] 準備使用標準 Playwright 訪問網頁：{url}")
+    """使用 Playwright 訪問網頁，同時獲取文字與截圖"""
+    print(f"🌐 [Debug] 準備訪問並截圖網頁：{url}")
     try:
         async with async_playwright() as p:
-            # 直接啟動內置嘅 Chromium 瀏覽器 (headless=True 代表隱形運行)
+            # 啟動 Chromium
             browser = await p.chromium.launch(headless=True)
-            browser_context = await browser.new_context()
+            # 設定為桌面版解像度，等截圖靚啲
+            browser_context = await browser.new_context(viewport={'width': 1280, 'height': 800})
             page = await browser_context.new_page()
             
             # 設置超時時間 15 秒
@@ -92,12 +128,22 @@ async def browse_website_with_playwright(chat_id, context, url: str):
             content = await page.evaluate("document.body.innerText")
             page_title = await page.title()
             
+            # 獲取截圖，並轉為 Base64 格式
+            screenshot_bytes = await page.screenshot(type='jpeg', quality=60, full_page=False)
+            base64_encoded = base64.b64encode(screenshot_bytes).decode('utf-8')
+            
             await browser.close()
             
-            safe_content = content[:3000] if content else "無法提取文字內容"
+            safe_content = content[:2000] if content else "無法提取文字內容"
+            print(f"✅ [Debug] 成功獲取 {url} 文字及截圖")
             
-            print(f"✅ [Debug] 成功獲取 {url} 網頁內容")
-            return f"成功訪問【{page_title}】({url})\n\n提取內容摘要：\n{safe_content}"
+            # 以特定 JSON 格式傳出，等 bot.py 攔截並轉化為圖片輸入畀大腦
+            return json.dumps({
+                "type": "webpage_with_screenshot",
+                "title": page_title,
+                "text": safe_content,
+                "image_base64": base64_encoded
+            })
             
     except Exception as e:
         error_msg = f"訪問網頁 {url} 失敗，錯誤信息：{str(e)}"
@@ -217,11 +263,24 @@ AGENT_TOOLS_REGISTRY = {
     "browse_website": create_tool(
         func = browse_website_with_playwright,
         name = "browse_website",
-        desc = "當老闆提供一個網址，或需要你上網抓取特定網站的實時資訊時調用此工具。這會啟動無頭瀏覽器去抓取網頁數據。",
+        desc = "當老闆提供一個網址，或需要你上網抓取特定網站的實時資訊時調用此工具。這會啟動無頭瀏覽器去抓取網頁數據，並同步提供網頁截圖供你進行視覺分析。",
         params = {
             "url": {
                 "type": "string",
                 "description": "要訪問的完整網址 (例如 https://news.ycombinator.com)"
+            }
+        },
+        required = ["url"]
+    ),
+
+    "analyze_youtube_video": create_tool(
+        func = analyze_youtube_video,
+        name = "analyze_youtube_video",
+        desc = "當老闆要求你總結或觀看 YouTube 影片時調用。此工具會自動提取影片的精確字幕文本供你分析。",
+        params = {
+            "url": {
+                "type": "string",
+                "description": "YouTube 影片完整網址"
             }
         },
         required = ["url"]
