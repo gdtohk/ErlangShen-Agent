@@ -14,7 +14,7 @@ from skills.weather import get_hk_weather_detailed
 from skills.reminder import set_reminder
 from skills.system_ops import update_from_github
 
-# ================= 新增：YouTube 影片字幕提取 (無差別兜底版) =================
+# ================= 新增：YouTube 影片字幕提取 (最穩陣兜底版) =================
 async def analyze_youtube_video(chat_id, context, url: str):
     """獲取 YouTube 影片的字幕/文字稿"""
     print(f"📺 [Debug] 準備獲取 YouTube 字幕：{url}")
@@ -31,22 +31,17 @@ async def analyze_youtube_video(chat_id, context, url: str):
         if not video_id:
             return "❌ 無法從網址中提取 Video ID。"
 
-        # 🚨 關鍵修正：最新版 youtube-transcript-api 需要實例化後調用 list()
-        ytt_api = YouTubeTranscriptApi()
-        transcript_list = ytt_api.list(video_id)
+        # 🚨 終極修正：直接使用官方原生的類別方法獲取所有字幕清單
+        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
         
-        try:
-            # 優先嘗試精準配對中英文
-            transcript = transcript_list.find_transcript(['zh-Hant', 'zh-HK', 'zh-Hans', 'zh-CN', 'zh', 'en'])
-        except Exception:
-            # 【無差別兜底機制】：如果無中英文，直接夾硬攞第一條可用嘅字幕（包含自動生成）
-            transcript = None
-            for t in transcript_list:
-                transcript = t
-                break
-            
-            if not transcript:
-                return "❌ 呢條影片真係完全冇提供任何字幕（連自動生成都冇）。"
+        # 【無差別兜底機制】：無論係咩語言、手動定自動生成，直接抽走第一條可用嘅字幕！
+        transcript = None
+        for t in transcript_list:
+            transcript = t
+            break
+        
+        if not transcript:
+            return "❌ 呢條影片真係完全冇提供任何字幕（連自動生成都冇）。"
 
         # 獲取實際字幕數據
         fetched_transcript = transcript.fetch()
