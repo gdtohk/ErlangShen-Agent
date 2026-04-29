@@ -31,15 +31,15 @@ async def analyze_youtube_video(chat_id, context, url: str):
         if not video_id:
             return "❌ 無法從網址中提取 Video ID。"
 
-        # 獲取影片所有可用的字幕清單
-        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+        # 🚨 關鍵修正：最新版 youtube-transcript-api 需要實例化後調用 list()
+        ytt_api = YouTubeTranscriptApi()
+        transcript_list = ytt_api.list(video_id)
         
         try:
             # 優先嘗試精準配對中英文
             transcript = transcript_list.find_transcript(['zh-Hant', 'zh-HK', 'zh-Hans', 'zh-CN', 'zh', 'en'])
         except Exception:
             # 【無差別兜底機制】：如果無中英文，直接夾硬攞第一條可用嘅字幕（包含自動生成）
-            # 唔使擔心語言問題，Gemini 大腦會自動翻譯並總結
             transcript = None
             for t in transcript_list:
                 transcript = t
