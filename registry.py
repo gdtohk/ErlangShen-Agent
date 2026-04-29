@@ -72,19 +72,20 @@ async def search_web(chat_id, context, query):
         print(f"❌ [Debug] RSS 搜尋出錯：{str(e)}")
         return f"❌ 網絡搜尋出錯：{str(e)}"
 
-# ================= 新增：Obscura 網頁瀏覽函數 =================
-async def browse_website_with_obscura(chat_id, context, url: str):
+# ================= 新增：標準 Playwright 網頁瀏覽函數 =================
+async def browse_website_with_playwright(chat_id, context, url: str):
     """
-    使用 Obscura 無頭瀏覽器訪問網頁並提取純文字內容
+    使用 Playwright 標準無頭瀏覽器訪問網頁並提取純文字內容
     """
-    print(f"🌐 [Debug] 準備使用 Obscura 訪問網頁：{url}")
+    print(f"🌐 [Debug] 準備使用標準 Playwright 訪問網頁：{url}")
     try:
         async with async_playwright() as p:
-            # 連接 VPS 本地的 Obscura 引擎
-            browser = await p.chromium.connect_over_cdp("ws://127.0.0.1:9222")
+            # 直接啟動內置嘅 Chromium 瀏覽器 (headless=True 代表隱形運行)
+            browser = await p.chromium.launch(headless=True)
             browser_context = await browser.new_context()
             page = await browser_context.new_page()
             
+            # 設置超時時間 15 秒
             await page.goto(url, timeout=15000)
             await page.wait_for_load_state("domcontentloaded")
             
@@ -214,7 +215,7 @@ AGENT_TOOLS_REGISTRY = {
     ),
 
     "browse_website": create_tool(
-        func = browse_website_with_obscura,
+        func = browse_website_with_playwright,
         name = "browse_website",
         desc = "當老闆提供一個網址，或需要你上網抓取特定網站的實時資訊時調用此工具。這會啟動無頭瀏覽器去抓取網頁數據。",
         params = {
