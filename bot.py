@@ -322,6 +322,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     user_memory[user_id].append({"role": "assistant", "content": final_reply})
 
                 # 👄 判斷回覆方式：文字 or 語音
+                # 🛡️ 終極防呆：確保 final_reply 絕對唔會係空字串
+                if final_reply is None or str(final_reply).strip() == "":
+                    final_reply = "✅ 指令已處理！（如果冇收到 Excel 報表，請檢查 VPS 終端機有無紅字報錯）"
+                    
                 await update.message.reply_text(final_reply)
 
                 # 如果老闆是用語音問的，二郎神就用語音回答！
