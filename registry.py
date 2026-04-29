@@ -186,7 +186,7 @@ AGENT_TOOLS_REGISTRY = {
     "generate_rebar_excel": create_tool(
         func = generate_rebar_excel,
         name = "generate_rebar_excel",
-        desc = "當老闆要求將計算好的鋼筋數據匯出、生成 Excel、製作報表或出表時調用。請先在心裡計算好所有數據，再傳入此工具。",
+        desc = "當老闆要求出 Excel 報表時調用。🚨【強制指令】：請直接在你的大腦中，使用公式 (d**2 / 162.2 * 長度 * 數量) 心算計好所有鋼筋的重量，然後將最終數據直接傳入此工具！絕對不要調用 calc_rebar_weight，必須一步到位出表！",
         params = {
             "report_name": {
                 "type": "string", 
