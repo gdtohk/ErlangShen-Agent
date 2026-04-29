@@ -23,20 +23,23 @@ Markdown
 
 ## 🛠️ 詳細部署指南 (Step-by-Step Deployment Guide)
 
-### 1. 系統底層環境準備
+### 
 為了處理語音與瀏覽網頁，必須安裝影音處理器及瀏覽器內核：
 
 ```bash
+1. 系統底層環境準備
+Bash
 # 安裝影音編碼器
 sudo apt update && sudo apt install ffmpeg flac -y
+
 2. 安裝瀏覽器引擎 (重要!)
 本專案使用 Playwright 進行網頁擷取，必須安裝 Chromium 內核：
-
 Bash
 # 安裝內核
 python3 -m playwright install chromium
 # 安裝相關系統依賴
 python3 -m playwright install-deps chromium
+
 3. 下載專案與環境建立
 Bash
 git clone [https://github.com/gdtohk/ErlangShen-Agent.git](https://github.com/gdtohk/ErlangShen-Agent.git)
@@ -44,9 +47,9 @@ cd ErlangShen-Agent
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+
 4. 配置環境變數 (.env)
 在根目錄建立 .env 檔案並填寫配置：
-
 Plaintext
 TELEGRAM_TOKEN=你的_Token
 API_KEY=你的_Gemini_API_Key
@@ -55,6 +58,7 @@ ALLOWED_USER_ID=你的_ID
 TIMEZONE=Asia/Hong_Kong
 LOCATION=Hong Kong
 MODEL_NAME=gemini-2.5-flash
+
 5. 背景常駐運行 (標準指令)
 建議使用 nohup 維持 24 小時運作。當更新代碼後，請執行以下組合指令：
 
