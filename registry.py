@@ -14,7 +14,7 @@ from skills.weather import get_hk_weather_detailed
 from skills.reminder import set_reminder
 from skills.system_ops import update_from_github
 
-# ================= 新增：YouTube 影片字幕提取 =================
+# ================= 新增：YouTube 影片字幕提取 (無差別兜底版) =================
 async def analyze_youtube_video(chat_id, context, url: str):
     """獲取 YouTube 影片的字幕/文字稿"""
     print(f"📺 [Debug] 準備獲取 YouTube 字幕：{url}")
@@ -31,19 +31,37 @@ async def analyze_youtube_video(chat_id, context, url: str):
         if not video_id:
             return "❌ 無法從網址中提取 Video ID。"
 
-        # 獲取字幕 (優先抓取繁體/簡體中文，英文兜底)
-        transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['zh-Hant', 'zh-HK', 'zh-Hans', 'zh-CN', 'en'])
+        # 獲取影片所有可用的字幕清單
+        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+        
+        try:
+            # 優先嘗試精準配對中英文
+            transcript = transcript_list.find_transcript(['zh-Hant', 'zh-HK', 'zh-Hans', 'zh-CN', 'zh', 'en'])
+        except Exception:
+            # 【無差別兜底機制】：如果無中英文，直接夾硬攞第一條可用嘅字幕（包含自動生成）
+            # 唔使擔心語言問題，Gemini 大腦會自動翻譯並總結
+            transcript = None
+            for t in transcript_list:
+                transcript = t
+                break
+            
+            if not transcript:
+                return "❌ 呢條影片真係完全冇提供任何字幕（連自動生成都冇）。"
+
+        # 獲取實際字幕數據
+        fetched_transcript = transcript.fetch()
         
         # 將字幕組合成完整文字
-        full_text = " ".join([entry['text'] for entry in transcript_list])
+        full_text = " ".join([entry['text'] for entry in fetched_transcript])
         
-        # 截斷保護 (避免超過大模型 token 限制，大約保留 15000 字)
+        # 截斷保護 (避免超過大模型 token 限制)
         safe_text = full_text[:15000] 
         
-        print(f"✅ [Debug] 成功獲取 YouTube 字幕，長度：{len(safe_text)}")
+        print(f"✅ [Debug] 成功獲取 YouTube 字幕 (語言: {transcript.language})，長度：{len(safe_text)}")
         return f"影片字幕提取成功！請根據以下內容進行總結或回答：\n\n{safe_text}"
+        
     except Exception as e:
-        error_msg = f"無法獲取字幕 (可能影片未提供字幕，或者被區域限制)：{str(e)}"
+        error_msg = f"無法獲取字幕：{str(e)}"
         print(f"❌ [Debug] {error_msg}")
         return error_msg
 
@@ -115,20 +133,16 @@ async def browse_website_with_playwright(chat_id, context, url: str):
     print(f"🌐 [Debug] 準備訪問並截圖網頁：{url}")
     try:
         async with async_playwright() as p:
-            # 啟動 Chromium
             browser = await p.chromium.launch(headless=True)
-            # 設定為桌面版解像度，等截圖靚啲
             browser_context = await browser.new_context(viewport={'width': 1280, 'height': 800})
             page = await browser_context.new_page()
             
-            # 設置超時時間 15 秒
             await page.goto(url, timeout=15000)
             await page.wait_for_load_state("domcontentloaded")
             
             content = await page.evaluate("document.body.innerText")
             page_title = await page.title()
             
-            # 獲取截圖，並轉為 Base64 格式
             screenshot_bytes = await page.screenshot(type='jpeg', quality=60, full_page=False)
             base64_encoded = base64.b64encode(screenshot_bytes).decode('utf-8')
             
@@ -137,7 +151,6 @@ async def browse_website_with_playwright(chat_id, context, url: str):
             safe_content = content[:2000] if content else "無法提取文字內容"
             print(f"✅ [Debug] 成功獲取 {url} 文字及截圖")
             
-            # 以特定 JSON 格式傳出，等 bot.py 攔截並轉化為圖片輸入畀大腦
             return json.dumps({
                 "type": "webpage_with_screenshot",
                 "title": page_title,
