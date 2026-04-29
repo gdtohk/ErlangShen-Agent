@@ -48,6 +48,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_voice = False
     content_payload = ""
     temp_ogg, temp_wav, reply_mp3 = f"temp_{user_id}.ogg", f"temp_{user_id}.wav", f"reply_{user_id}.mp3"
+
+    # --- 記錄當前記憶長度，出錯時方便回滾 ---
     original_memory_len = len(user_memory.get(user_id, []))
 
     if update.message.voice:
@@ -60,7 +62,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             with sr.AudioFile(temp_wav) as source:
                 content_payload = sr.Recognizer().recognize_google(sr.Recognizer().record(source), language="yue-Hant-HK")
             await status_msg.edit_text(f"🗣️ 你講咗：\n「{content_payload}」")
-        except: return await status_msg.edit_text("❌ 語音出錯")
+        except Exception:
+            await status_msg.edit_text("❌ 語音出錯")
+            return
         finally:
             if os.path.exists(temp_ogg): os.remove(temp_ogg)
             if os.path.exists(temp_wav): os.remove(temp_wav)
@@ -104,13 +108,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(API_URL, headers=headers, json=payload) as response:
-                if response.status != 200: raise Exception(f"API拒絕 (HTTP {response.status})")
-                data = await response.json()
+                if response.status != 200:
+                    raise Exception(f"API拒絕 (HTTP {response.status})")
                 
-                # 🚨 針對性修正：避震系統，防止 API 返回奇怪 JSON 導致 KeyError
+                data = await response.json()
                 if 'choices' not in data:
                     raise Exception(f"API代理商返回異常格式: {data.get('error', data)}")
-                
+                    
                 msg = data['choices'][0]['message']
 
                 if msg.get('tool_calls'):
@@ -137,15 +141,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     payload["messages"] = user_memory[user_id]
                     payload.pop("tools", None)
                     
+                    # 🚨 二次請求狀態檢查
                     async with session.post(API_URL, headers=headers, json=payload) as res2:
+                        if res2.status != 200:
+                            err_text = await res2.text()
+                            raise Exception(f"代理伺服器拒絕二次請求 (HTTP {res2.status})。返回：{err_text[:100]}")
+                        
                         data2 = await res2.json()
                         if 'choices' not in data2:
                             raise Exception(f"代理伺服器二次請求異常: {data2.get('error', data2)}")
+                            
                         final_reply = data2['choices'][0]['message']['content']
                 else:
                     final_reply = msg.get('content', "唔明白。")
 
                 user_memory[user_id].append({"role": "assistant", "content": final_reply})
+                
+                # 防呆：確保不為空
+                if final_reply is None or str(final_reply).strip() == "":
+                    final_reply = "✅ 指令已處理完畢！"
+                    
                 await update.message.reply_text(final_reply)
 
                 if is_voice:
@@ -160,6 +175,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     user_memory[user_id].pop(1)
 
     except Exception as e:
+        # 🚨 記憶回滾：出錯時清掉未完成的輪次，避免污染上下文
         user_memory[user_id] = user_memory.get(user_id, [])[:original_memory_len]
         await update.message.reply_text(f"❌ 系統錯誤：{str(e)}")
 
