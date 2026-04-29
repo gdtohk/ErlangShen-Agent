@@ -14,7 +14,7 @@ from skills.weather import get_hk_weather_detailed
 from skills.reminder import set_reminder
 from skills.system_ops import update_from_github
 
-# ================= 新增：YouTube 影片字幕提取 (最穩陣兜底版) =================
+# ================= 新增：YouTube 影片字幕提取 (徹底兼容 1.2.4 最新版) =================
 async def analyze_youtube_video(chat_id, context, url: str):
     """獲取 YouTube 影片的字幕/文字稿"""
     print(f"📺 [Debug] 準備獲取 YouTube 字幕：{url}")
@@ -31,10 +31,11 @@ async def analyze_youtube_video(chat_id, context, url: str):
         if not video_id:
             return "❌ 無法從網址中提取 Video ID。"
 
-        # 🚨 終極修正：直接使用官方原生的類別方法獲取所有字幕清單
-        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+        # 1. 實例化 API 並獲取清單 (1.2.4 最新寫法)
+        ytt_api = YouTubeTranscriptApi()
+        transcript_list = ytt_api.list(video_id)
         
-        # 【無差別兜底機制】：無論係咩語言、手動定自動生成，直接抽走第一條可用嘅字幕！
+        # 2. 盲抽第一條可用嘅字幕 (無差別兜底)
         transcript = None
         for t in transcript_list:
             transcript = t
@@ -43,11 +44,18 @@ async def analyze_youtube_video(chat_id, context, url: str):
         if not transcript:
             return "❌ 呢條影片真係完全冇提供任何字幕（連自動生成都冇）。"
 
-        # 獲取實際字幕數據
+        # 3. 獲取實際字幕數據
         fetched_transcript = transcript.fetch()
         
-        # 將字幕組合成完整文字
-        full_text = " ".join([entry['text'] for entry in fetched_transcript])
+        # 4. 提取文字：兼容最新 FetchedTranscriptSnippet 物件與舊版 Dict
+        full_text_list = []
+        for entry in fetched_transcript:
+            if hasattr(entry, 'text'):
+                full_text_list.append(entry.text)
+            else:
+                full_text_list.append(entry.get('text', ''))
+                
+        full_text = " ".join(full_text_list)
         
         # 截斷保護 (避免超過大模型 token 限制)
         safe_text = full_text[:15000] 
