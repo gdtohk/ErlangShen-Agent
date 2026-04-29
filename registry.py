@@ -1,3 +1,4 @@
+from skills.export_excel import generate_rebar_excel
 import asyncio
 import aiohttp
 import xml.etree.ElementTree as ET
@@ -179,6 +180,34 @@ AGENT_TOOLS_REGISTRY = {
         desc = "從 GitHub 拉取最新程式碼更新。當老闆要求「更新系統」、「拉取最新代碼」、「git pull」或「檢查更新」時調用。",
         params = {},
         required = []
+    ),
+
+    # 工具 8：生成 Excel 報表
+    "generate_rebar_excel": create_tool(
+        func = generate_rebar_excel,
+        name = "generate_rebar_excel",
+        desc = "當老闆要求將計算好的鋼筋數據匯出、生成 Excel、製作報表或出表時調用。請先在心裡計算好所有數據，再傳入此工具。",
+        params = {
+            "report_name": {
+                "type": "string", 
+                "description": "報表名稱，例如：B區大陣鋼筋表"
+            },
+            "records": {
+                "type": "array",
+                "description": "鋼筋數據清單。每個項目必須包含 d, length, qty, weight 四個數值。",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "d": {"type": "number", "description": "直徑 (mm)"},
+                        "length": {"type": "number", "description": "長度 (m)"},
+                        "qty": {"type": "number", "description": "數量"},
+                        "weight": {"type": "number", "description": "重量 (kg)"}
+                    },
+                    "required": ["d", "length", "qty", "weight"]
+                }
+            }
+        },
+        required = ["report_name", "records"]
     )
 }
 
