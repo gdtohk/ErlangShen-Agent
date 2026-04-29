@@ -23,11 +23,11 @@ Markdown
 
 ## 🛠️ 詳細部署指南 (Step-by-Step Deployment Guide)
 
-### 
-為了處理語音與瀏覽網頁，必須安裝影音處理器及瀏覽器內核：
+### 系統底層環境準備
+
 
 ```bash
-1. 系統底層環境準備
+1. 為了處理語音與瀏覽網頁，必須安裝影音處理器及瀏覽器內核：
 Bash
 # 安裝影音編碼器
 sudo apt update && sudo apt install ffmpeg flac -y
