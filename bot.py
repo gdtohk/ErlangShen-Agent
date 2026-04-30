@@ -117,9 +117,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         user_memory[user_id][0]["content"] = dynamic_prompt
     
+    # 在真實記憶體中加入老闆的最新提問
     user_memory[user_id].append({"role": "user", "content": content_payload})
-    
-    payload = {"model": GEMINI_MODEL, "messages": user_memory[user_id], "tools": GET_TOOLS_LIST, "tool_choice": "auto"}
     
     random.shuffle(API_ENDPOINTS)
     success = False
@@ -130,6 +129,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         current_url = endpoint["url"]
         current_key = endpoint["key"]
         
+        # 🚨 沙盒隔離機制：每次重試都用一份全新複製的記憶與 Payload，防止交叉污染！
+        temp_memory = list(user_memory[user_id])
+        temp_payload = {
+            "model": GEMINI_MODEL, 
+            "messages": temp_memory, 
+            "tools": GET_TOOLS_LIST, 
+            "tool_choice": "auto"
+        }
+        
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {current_key}"
@@ -139,8 +147,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(current_url, headers=headers, json=payload) as response:
-                    if response.status != 200: raise Exception(f"HTTP {response.status}")
+                async with session.post(current_url, headers=headers, json=temp_payload) as response:
+                    if response.status != 200: 
+                        err_txt = await response.text()
+                        raise Exception(f"HTTP {response.status} ({err_txt[:60]}...)")
+                        
                     data = await response.json()
                     if 'choices' not in data: raise Exception("代理返回異常")
                     
@@ -154,7 +165,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         if isinstance(raw_tc_list, dict): raw_tc_list = [raw_tc_list]
                         elif not isinstance(raw_tc_list, list): raw_tc_list = []
                         
-                        # --- 🚨 終極防護：深度消毒，構建最乾淨的 Assistant Message ---
                         clean_tool_calls = []
                         for tc in raw_tc_list:
                             if isinstance(tc, list): tc = tc[0]
@@ -162,7 +172,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             if isinstance(fn_data, list): fn_data = fn_data[0]
                             
                             clean_tool_calls.append({
-                                "id": tc.get('id', 'unknown_id'),
+                                "id": tc.get('id', f"call_{random.randint(1000,9999)}"),
                                 "type": "function",
                                 "function": {
                                     "name": fn_data.get('name', 'unknown_func'),
@@ -174,8 +184,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         if msg.get("content"):
                             clean_assistant_msg["content"] = msg["content"]
                             
-                        # 將乾淨的 Message 放入記憶體，確保不會觸發 HTTP 400
-                        user_memory[user_id].append(clean_assistant_msg)
+                        # 將清理好的記錄放入「沙盒記憶體」
+                        temp_memory.append(clean_assistant_msg)
                         
                         for tc in clean_tool_calls:
                             fn = tc['function']['name']
@@ -188,23 +198,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             try:
                                 rj = json.loads(str(res))
                                 if isinstance(rj, dict) and rj.get("type") == "webpage_with_screenshot":
-                                    user_memory[user_id].append({"role": "tool", "tool_call_id": tc['id'], "name": fn, "content": f"文字：{rj.get('text', '')}"})
-                                    user_memory[user_id].append({"role": "user", "content": [{"type": "text", "text": "請參考網頁截圖。"}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{rj.get('image_base64', '')}"}}]})
+                                    temp_memory.append({"role": "tool", "tool_call_id": tc['id'], "name": fn, "content": f"文字：{rj.get('text', '')}"})
+                                    temp_memory.append({"role": "user", "content": [{"type": "text", "text": "請參考網頁截圖。"}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{rj.get('image_base64', '')}"}}]})
                                     is_ss = True
                             except: pass
 
                             if not is_ss:
                                 tool_out = str(res)
-                                user_memory[user_id].append({"role": "tool", "tool_call_id": tc['id'], "name": fn, "content": tool_out})
+                                temp_memory.append({"role": "tool", "tool_call_id": tc['id'], "name": fn, "content": tool_out})
                         
-                        payload["messages"] = user_memory[user_id]
-                        payload.pop("tools", None)
+                        # 🚨 絕不刪除 tools 清單，滿足 Google 嚴格要求
+                        temp_payload["messages"] = temp_memory
                         
-                        # --- 匯報結果，這次保證不會再彈 400 ---
-                        async with session.post(current_url, headers=headers, json=payload) as res2:
-                            if res2.status != 200: raise Exception(f"工具匯報 HTTP {res2.status}")
-                            res2_data = await res2.json()
+                        async with session.post(current_url, headers=headers, json=temp_payload) as res2:
+                            if res2.status != 200: 
+                                err_txt = await res2.text()
+                                raise Exception(f"工具匯報 HTTP {res2.status} ({err_txt[:60]}...)")
                             
+                            res2_data = await res2.json()
                             c_data = res2_data['choices'][0]
                             if isinstance(c_data, list): c_data = c_data[0]
                             m_data = c_data.get('message', {})
@@ -214,6 +225,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     else:
                         final_reply = msg.get('content', "唔明。")
 
+                    # 🎉 如果成功跑到呢度，證明呢個節點大成功！將沙盒記憶體覆寫落真實記憶體！
+                    user_memory[user_id] = temp_memory
                     success = True
                     break
                     
