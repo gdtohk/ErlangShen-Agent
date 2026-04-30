@@ -13,9 +13,24 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-API_KEYS = [os.getenv("API_KEY_1"), os.getenv("API_KEY_2")]
-API_KEYS = [k for k in API_KEYS if k]  # 過濾掉空白嘅 Key
-API_URL = os.getenv("API_URL")
+
+# --- 🚨 三引擎配置自動讀取邏輯 ---
+API_ENDPOINTS = []
+# 循環讀取 API_URL_1 到 API_URL_10
+for i in range(1, 11):
+    u = os.getenv(f"API_URL_{i}")
+    k = os.getenv(f"API_KEY_{i}")
+    if u and k:
+        API_ENDPOINTS.append({"url": u, "key": k})
+
+# 向下兼容：如果老闆忘記改名，仍然使用舊的 API_URL
+if not API_ENDPOINTS:
+    default_url = os.getenv("API_URL")
+    for i in range(1, 11):
+        k = os.getenv(f"API_KEY_{i}")
+        if default_url and k:
+            API_ENDPOINTS.append({"url": default_url, "key": k})
+
 GEMINI_MODEL = os.getenv("MODEL_NAME", "gemini-2.5-flash")
 ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID", 0))
 BOT_NAME = os.getenv("BOT_NAME", "二郎神")
@@ -35,6 +50,7 @@ SYSTEM_PROMPT = f"""
 3. 如果工具調用失敗，請老實告訴老闆，絕對禁止憑空編造！
 4. 調用 browse_website 後，系統會為你注入網頁截圖，請務必進行視覺分析。
 5. ⚠️ 重要：你目前並不具備觀看 YouTube 影片的能力。如果老闆給你 YouTube 連結，請婉轉告知無法觀看。
+6. ⛈️ 天氣指令：當老闆詢問天氣時，請務必優先調用 `get_hk_weather_detailed` 工具獲取香港天文台數據，嚴禁隨意使用其他全球天氣工具！
 """
 
 async def daily_morning_report(context: ContextTypes.DEFAULT_TYPE):
@@ -108,69 +124,107 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     payload = {"model": GEMINI_MODEL, "messages": user_memory[user_id], "tools": GET_TOOLS_LIST, "tool_choice": "auto"}
     
-    current_key = random.choice(API_KEYS)
-    headers = {
-        "Content-Type": "application/json",
-        "x-goog-api-key": current_key,            # 這是 Google 官方專用認證
-        "Authorization": f"Bearer {current_key}"  # 這是兼容舊版 Proxy 認證 (可同時保留)
-    }
+    # --- 🚨 高可用性 (HA) 輪替與自動備援核心邏輯 ---
+    random.shuffle(API_ENDPOINTS)  # 每次隨機打亂，實現輪流使用
+    success = False
+    final_reply = ""
+    error_msg_list = []
 
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(API_URL, headers=headers, json=payload) as response:
-                if response.status != 200: raise Exception(f"API錯誤 ({response.status})")
-                data = await response.json()
-                if 'choices' not in data: raise Exception("代理返回異常")
-                msg = data['choices'][0]['message']
+    for endpoint in API_ENDPOINTS:
+        current_url = endpoint["url"]
+        current_key = endpoint["key"]
+        
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {current_key}"
+        }
+        # 如果係 Google 官方，補回專用 Header
+        if "googleapis.com" in current_url:
+            headers["x-goog-api-key"] = current_key
 
-                if msg.get('tool_calls'):
-                    user_memory[user_id].append(msg)
-                    for tc in msg['tool_calls']:
-                        fn = tc['function']['name']
-                        args = json.loads(tc['function']['arguments'])
-                        res = await AGENT_TOOLS_REGISTRY[fn]["func"](chat_id=chat_id, context=context, **args)
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(current_url, headers=headers, json=payload) as response:
+                    if response.status != 200: raise Exception(f"HTTP {response.status}")
+                    data = await response.json()
+                    if 'choices' not in data: raise Exception("代理返回異常")
+                    
+                    # --- 🚨 終極防禦：強行剝去 API 偶爾回傳的錯誤嵌套結構 ---
+                    choice_data = data['choices'][0]
+                    if isinstance(choice_data, list): choice_data = choice_data[0]
+                    msg = choice_data.get('message', {})
+                    if isinstance(msg, list): msg = msg[0]
+
+                    if msg.get('tool_calls'):
+                        user_memory[user_id].append(msg)
                         
-                        is_ss = False
-                        try:
-                            rj = json.loads(str(res))
-                            if rj.get("type") == "webpage_with_screenshot":
-                                user_memory[user_id].append({"role": "tool", "tool_call_id": tc['id'], "name": fn, "content": f"文字：{rj['text']}"})
-                                user_memory[user_id].append({"role": "user", "content": [{"type": "text", "text": "請參考網頁截圖。"}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{rj['image_base64']}"}}]})
-                                is_ss = True
-                        except: pass
+                        raw_tc_list = msg['tool_calls']
+                        if isinstance(raw_tc_list, dict): raw_tc_list = [raw_tc_list]
+                        elif not isinstance(raw_tc_list, list): raw_tc_list = []
+                        
+                        for tc in raw_tc_list:
+                            if isinstance(tc, list): tc = tc[0]
+                            
+                            fn_data = tc.get('function', {})
+                            if isinstance(fn_data, list): fn_data = fn_data[0]
+                            
+                            fn = fn_data.get('name')
+                            args_raw = fn_data.get('arguments', '{}')
+                            args = args_raw if isinstance(args_raw, dict) else json.loads(args_raw)
+                            
+                            res = await AGENT_TOOLS_REGISTRY[fn]["func"](chat_id=chat_id, context=context, **args)
+                            
+                            is_ss = False
+                            try:
+                                rj = json.loads(str(res))
+                                if isinstance(rj, dict) and rj.get("type") == "webpage_with_screenshot":
+                                    user_memory[user_id].append({"role": "tool", "tool_call_id": tc.get('id', 'unknown'), "name": fn, "content": f"文字：{rj.get('text', '')}"})
+                                    user_memory[user_id].append({"role": "user", "content": [{"type": "text", "text": "請參考網頁截圖。"}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{rj.get('image_base64', '')}"}}]})
+                                    is_ss = True
+                            except: pass
 
-                        if not is_ss:
-                            tool_out = str(res)
-                            user_memory[user_id].append({"role": "tool", "tool_call_id": tc['id'], "name": fn, "content": tool_out})
+                            if not is_ss:
+                                tool_out = str(res)
+                                user_memory[user_id].append({"role": "tool", "tool_call_id": tc.get('id', 'unknown'), "name": fn, "content": tool_out})
+                        
+                        payload["messages"] = user_memory[user_id]
+                        payload.pop("tools", None)
+                        async with session.post(current_url, headers=headers, json=payload) as res2:
+                            final_reply = (await res2.json())['choices'][0]['message']['content']
+                    else:
+                        final_reply = msg.get('content', "唔明。")
+
+                    success = True
+                    break  # 成功獲取回覆，立即跳出輪替迴圈！
                     
-                    payload["messages"] = user_memory[user_id]
-                    payload.pop("tools", None)
-                    async with session.post(API_URL, headers=headers, json=payload) as res2:
-                        final_reply = (await res2.json())['choices'][0]['message']['content']
-                else:
-                    final_reply = msg.get('content', "唔明。")
+        except Exception as e:
+            # 記錄失敗原因，並靜默切換到下一個節點嘗試
+            node_name = "官方節點" if "googleapis.com" in current_url else "CPAMC節點"
+            error_msg_list.append(f"[{node_name}] 失敗: {str(e)}")
+            continue
 
-                user_memory[user_id].append({"role": "assistant", "content": final_reply})
-                
-                if final_reply is None or str(final_reply).strip() == "":
-                    final_reply = "✅ 指令已處理！"
-                    
-                await update.message.reply_text(final_reply)
-
-                if is_voice:
-                    try:
-                        gTTS(text=final_reply, lang='yue').save(reply_mp3)
-                        with open(reply_mp3, "rb") as vo: await update.message.reply_voice(voice=vo)
-                        os.remove(reply_mp3)
-                    except: pass
-                
-                if len(user_memory[user_id]) > MAX_HISTORY * 2 + 1:
-                    user_memory[user_id].pop(1)
-                    user_memory[user_id].pop(1)
-
-    except Exception as e:
+    if not success:
+        # 如果所有 3 個引擎都陣亡，先還原記憶體，再報錯
         user_memory[user_id] = user_memory.get(user_id, [])[:original_memory_len]
-        await update.message.reply_text(f"❌ 系統錯誤：{str(e)}")
+        return await update.message.reply_text("❌ 所有 API 引擎均連線失敗！\n詳細原因：\n" + "\n".join(error_msg_list))
+
+    user_memory[user_id].append({"role": "assistant", "content": final_reply})
+    
+    if final_reply is None or str(final_reply).strip() == "":
+        final_reply = "✅ 指令已處理！"
+        
+    await update.message.reply_text(final_reply)
+
+    if is_voice:
+        try:
+            gTTS(text=final_reply, lang='yue').save(reply_mp3)
+            with open(reply_mp3, "rb") as vo: await update.message.reply_voice(voice=vo)
+            os.remove(reply_mp3)
+        except: pass
+    
+    if len(user_memory[user_id]) > MAX_HISTORY * 2 + 1:
+        user_memory[user_id].pop(1)
+        user_memory[user_id].pop(1)
 
 def main():
     print("⏳ 正在啟動二郎神大腦...")
