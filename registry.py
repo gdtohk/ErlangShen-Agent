@@ -19,13 +19,19 @@ async def get_global_weather(chat_id, context, location):
     print(f"🌍 [Debug] 準備查詢天氣：{location}")
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}
-        url = f"https://wttr.in/{location}?format=j1"
+        # 加上 urllib.parse.quote 防止中文名導致網址出錯
+        url = f"https://wttr.in/{urllib.parse.quote(location)}?format=j1"
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=headers) as resp:
                 if resp.status == 200:
                     data = await resp.json(content_type=None)
-                    current = data['current_condition'][0]
-                    return f"🌍 {location} 天氣數據：氣溫 {current['temp_C']}°C，狀況 {current['weatherDesc'][0]['value']}。"
+                    
+                    # 🚨 強化防禦：確保 API 畀返嚟嘅係字典 (dict)，並且入面有 current_condition
+                    if isinstance(data, dict) and 'current_condition' in data and len(data['current_condition']) > 0:
+                        current = data['current_condition'][0]
+                        return f"🌍 {location} 天氣數據：氣溫 {current.get('temp_C', '未知')}°C，狀況 {current.get('weatherDesc', [{'value': '未知'}])[0]['value']}。"
+                    else:
+                        return f"❌ {location} 天氣伺服器數據異常，請稍後再試。"
                 return f"❌ API 拒絕連線 (HTTP {resp.status})。"
     except Exception as e: return f"❌ 查詢出錯：{str(e)}"
 
