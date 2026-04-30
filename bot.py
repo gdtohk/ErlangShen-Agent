@@ -14,7 +14,6 @@ load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
-# --- 🚨 三引擎配置自動讀取邏輯 ---
 API_ENDPOINTS = []
 for i in range(1, 11):
     u = os.getenv(f"API_URL_{i}")
@@ -151,20 +150,36 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if isinstance(msg, list): msg = msg[0]
 
                     if msg.get('tool_calls'):
-                        user_memory[user_id].append(msg)
-                        
                         raw_tc_list = msg['tool_calls']
                         if isinstance(raw_tc_list, dict): raw_tc_list = [raw_tc_list]
                         elif not isinstance(raw_tc_list, list): raw_tc_list = []
                         
+                        # --- 🚨 終極防護：深度消毒，構建最乾淨的 Assistant Message ---
+                        clean_tool_calls = []
                         for tc in raw_tc_list:
                             if isinstance(tc, list): tc = tc[0]
-                            
                             fn_data = tc.get('function', {})
                             if isinstance(fn_data, list): fn_data = fn_data[0]
                             
-                            fn = fn_data.get('name')
-                            args_raw = fn_data.get('arguments', '{}')
+                            clean_tool_calls.append({
+                                "id": tc.get('id', 'unknown_id'),
+                                "type": "function",
+                                "function": {
+                                    "name": fn_data.get('name', 'unknown_func'),
+                                    "arguments": fn_data.get('arguments', '{}')
+                                }
+                            })
+                        
+                        clean_assistant_msg = {"role": "assistant", "tool_calls": clean_tool_calls}
+                        if msg.get("content"):
+                            clean_assistant_msg["content"] = msg["content"]
+                            
+                        # 將乾淨的 Message 放入記憶體，確保不會觸發 HTTP 400
+                        user_memory[user_id].append(clean_assistant_msg)
+                        
+                        for tc in clean_tool_calls:
+                            fn = tc['function']['name']
+                            args_raw = tc['function']['arguments']
                             args = args_raw if isinstance(args_raw, dict) else json.loads(args_raw)
                             
                             res = await AGENT_TOOLS_REGISTRY[fn]["func"](chat_id=chat_id, context=context, **args)
@@ -173,19 +188,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             try:
                                 rj = json.loads(str(res))
                                 if isinstance(rj, dict) and rj.get("type") == "webpage_with_screenshot":
-                                    user_memory[user_id].append({"role": "tool", "tool_call_id": tc.get('id', 'unknown'), "name": fn, "content": f"文字：{rj.get('text', '')}"})
+                                    user_memory[user_id].append({"role": "tool", "tool_call_id": tc['id'], "name": fn, "content": f"文字：{rj.get('text', '')}"})
                                     user_memory[user_id].append({"role": "user", "content": [{"type": "text", "text": "請參考網頁截圖。"}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{rj.get('image_base64', '')}"}}]})
                                     is_ss = True
                             except: pass
 
                             if not is_ss:
                                 tool_out = str(res)
-                                user_memory[user_id].append({"role": "tool", "tool_call_id": tc.get('id', 'unknown'), "name": fn, "content": tool_out})
+                                user_memory[user_id].append({"role": "tool", "tool_call_id": tc['id'], "name": fn, "content": tool_out})
                         
                         payload["messages"] = user_memory[user_id]
                         payload.pop("tools", None)
                         
-                        # --- 🚨 終極修復：為第二回合 (res2) 加上同樣的剝殼防禦 ---
+                        # --- 匯報結果，這次保證不會再彈 400 ---
                         async with session.post(current_url, headers=headers, json=payload) as res2:
                             if res2.status != 200: raise Exception(f"工具匯報 HTTP {res2.status}")
                             res2_data = await res2.json()
