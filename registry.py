@@ -19,14 +19,13 @@ async def get_global_weather(chat_id, context, location):
     print(f"🌍 [Debug] 準備查詢天氣：{location}")
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}
-        # 加上 urllib.parse.quote 防止中文名導致網址出錯
         url = f"https://wttr.in/{urllib.parse.quote(location)}?format=j1"
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=headers) as resp:
                 if resp.status == 200:
                     data = await resp.json(content_type=None)
                     
-                    # 🚨 強化防禦：確保 API 畀返嚟嘅係字典 (dict)，並且入面有 current_condition
+                    # 🚨 終極防禦：檢查對方畀嘅係咪字典，同埋有冇我們要嘅數據
                     if isinstance(data, dict) and 'current_condition' in data and len(data['current_condition']) > 0:
                         current = data['current_condition'][0]
                         return f"🌍 {location} 天氣數據：氣溫 {current.get('temp_C', '未知')}°C，狀況 {current.get('weatherDesc', [{'value': '未知'}])[0]['value']}。"
