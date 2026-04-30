@@ -10,7 +10,7 @@ from gtts import gTTS
 from registry import GET_TOOLS_LIST, AGENT_TOOLS_REGISTRY
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
-load_dotenv() 
+load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 API_KEYS = [os.getenv("API_KEY_1"), os.getenv("API_KEY_2")]
@@ -23,7 +23,7 @@ OWNER_NAME = os.getenv("OWNER_NAME", "老闆")
 TIMEZONE_STR = os.getenv("TIMEZONE", "Asia/Hong_Kong")
 
 user_memory = {}
-MAX_HISTORY = 10 
+MAX_HISTORY = 10
 
 SYSTEM_PROMPT = f"""
 你是{BOT_NAME}，{OWNER_NAME}的專屬 AI 助理。請用地道廣東話回答。
@@ -98,12 +98,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     local_time = datetime.datetime.now(ZoneInfo(TIMEZONE_STR))
     dynamic_prompt = SYSTEM_PROMPT + f"\n\n現在時間：{local_time.strftime('%Y-%m-%d %H:%M')}。"
-    if user_id not in user_memory: user_memory[user_id] = [{"role": "system", "content": dynamic_prompt}]
-    else: user_memory[user_id][0]["content"] = dynamic_prompt
+    
+    if user_id not in user_memory or not user_memory[user_id]:
+        user_memory[user_id] = [{"role": "system", "content": dynamic_prompt}]
+    else:
+        user_memory[user_id][0]["content"] = dynamic_prompt
     
     user_memory[user_id].append({"role": "user", "content": content_payload})
     
-    # 🚨 補回遺失的 payload 定義 🚨
     payload = {"model": GEMINI_MODEL, "messages": user_memory[user_id], "tools": GET_TOOLS_LIST, "tool_choice": "auto"}
     
     current_key = random.choice(API_KEYS)
