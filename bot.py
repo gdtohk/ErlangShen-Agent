@@ -16,14 +16,12 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
 # --- 🚨 三引擎配置自動讀取邏輯 ---
 API_ENDPOINTS = []
-# 循環讀取 API_URL_1 到 API_URL_10
 for i in range(1, 11):
     u = os.getenv(f"API_URL_{i}")
     k = os.getenv(f"API_KEY_{i}")
     if u and k:
         API_ENDPOINTS.append({"url": u, "key": k})
 
-# 向下兼容：如果老闆忘記改名，仍然使用舊的 API_URL
 if not API_ENDPOINTS:
     default_url = os.getenv("API_URL")
     for i in range(1, 11):
@@ -124,8 +122,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     payload = {"model": GEMINI_MODEL, "messages": user_memory[user_id], "tools": GET_TOOLS_LIST, "tool_choice": "auto"}
     
-    # --- 🚨 高可用性 (HA) 輪替與自動備援核心邏輯 ---
-    random.shuffle(API_ENDPOINTS)  # 每次隨機打亂，實現輪流使用
+    random.shuffle(API_ENDPOINTS)
     success = False
     final_reply = ""
     error_msg_list = []
@@ -138,7 +135,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Content-Type": "application/json",
             "Authorization": f"Bearer {current_key}"
         }
-        # 如果係 Google 官方，補回專用 Header
         if "googleapis.com" in current_url:
             headers["x-goog-api-key"] = current_key
 
@@ -149,7 +145,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     data = await response.json()
                     if 'choices' not in data: raise Exception("代理返回異常")
                     
-                    # --- 🚨 終極防禦：強行剝去 API 偶爾回傳的錯誤嵌套結構 ---
                     choice_data = data['choices'][0]
                     if isinstance(choice_data, list): choice_data = choice_data[0]
                     msg = choice_data.get('message', {})
@@ -189,22 +184,30 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         
                         payload["messages"] = user_memory[user_id]
                         payload.pop("tools", None)
+                        
+                        # --- 🚨 終極修復：為第二回合 (res2) 加上同樣的剝殼防禦 ---
                         async with session.post(current_url, headers=headers, json=payload) as res2:
-                            final_reply = (await res2.json())['choices'][0]['message']['content']
+                            if res2.status != 200: raise Exception(f"工具匯報 HTTP {res2.status}")
+                            res2_data = await res2.json()
+                            
+                            c_data = res2_data['choices'][0]
+                            if isinstance(c_data, list): c_data = c_data[0]
+                            m_data = c_data.get('message', {})
+                            if isinstance(m_data, list): m_data = m_data[0]
+                            
+                            final_reply = m_data.get('content', "✅ 天氣資訊已獲取。")
                     else:
                         final_reply = msg.get('content', "唔明。")
 
                     success = True
-                    break  # 成功獲取回覆，立即跳出輪替迴圈！
+                    break
                     
         except Exception as e:
-            # 記錄失敗原因，並靜默切換到下一個節點嘗試
             node_name = "官方節點" if "googleapis.com" in current_url else "CPAMC節點"
             error_msg_list.append(f"[{node_name}] 失敗: {str(e)}")
             continue
 
     if not success:
-        # 如果所有 3 個引擎都陣亡，先還原記憶體，再報錯
         user_memory[user_id] = user_memory.get(user_id, [])[:original_memory_len]
         return await update.message.reply_text("❌ 所有 API 引擎均連線失敗！\n詳細原因：\n" + "\n".join(error_msg_list))
 
