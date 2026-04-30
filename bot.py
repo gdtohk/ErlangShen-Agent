@@ -1,3 +1,4 @@
+import random
 import os, json, base64, logging, aiohttp, datetime, pandas as pd, fitz
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
@@ -12,7 +13,8 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 load_dotenv() 
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-API_KEY = os.getenv("API_KEY")
+API_KEYS = [os.getenv("API_KEY_1"), os.getenv("API_KEY_2")]
+API_KEYS = [k for k in API_KEYS if k]  # 過濾掉空白嘅 Key
 API_URL = os.getenv("API_URL")
 GEMINI_MODEL = os.getenv("MODEL_NAME", "gemini-2.5-flash")
 ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID", 0))
@@ -100,8 +102,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else: user_memory[user_id][0]["content"] = dynamic_prompt
     
     user_memory[user_id].append({"role": "user", "content": content_payload})
+    
+    # 🚨 補回遺失的 payload 定義 🚨
     payload = {"model": GEMINI_MODEL, "messages": user_memory[user_id], "tools": GET_TOOLS_LIST, "tool_choice": "auto"}
-    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {API_KEY}"}
+    
+    current_key = random.choice(API_KEYS)
+    headers = {
+        "Content-Type": "application/json",
+        "x-goog-api-key": current_key,            # 這是 Google 官方專用認證
+        "Authorization": f"Bearer {current_key}"  # 這是兼容舊版 Proxy 認證 (可同時保留)
+    }
 
     try:
         async with aiohttp.ClientSession() as session:
