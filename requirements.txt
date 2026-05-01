@@ -11,4 +11,4 @@ pandas
 PyMuPDF
 openpyxl
 playwright
-flask
+flask[async]
