@@ -1,14 +1,25 @@
 from flask import Flask, render_template_string, request, redirect, flash, session, jsonify
-import os, json, urllib.request
+import os, json, asyncio, aiohttp, datetime
+from zoneinfo import ZoneInfo
 from dotenv import load_dotenv, dotenv_values
 
-# 載入 .env 檔案
+# 嘗試載入 Telegram 嘅工具庫 (防錯機制)
+try:
+    from registry import GET_TOOLS_LIST, AGENT_TOOLS_REGISTRY
+except ImportError:
+    GET_TOOLS_LIST = []
+    AGENT_TOOLS_REGISTRY = {}
+
 load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "erlangshen_super_secret")
 ENV_PATH = ".env"
 ADMIN_PASSWORD = os.getenv("WEB_ADMIN_PASSWORD", "Admin_Not_Set_999") 
+
+# 網頁版專屬記憶體
+WEB_MEMORY = []
+MAX_HISTORY = 10
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -79,22 +90,19 @@ HTML_TEMPLATE = """
     </div>
     {% else %}
     
-    <!-- 聊天室主畫面 -->
     <div class="chat-container">
-        <div class="chat-header">🤖 二郎神大腦 - API 引擎測試頻道</div>
+        <div class="chat-header">🤖 二郎神大腦 - Web 旗艦版</div>
         <div class="chat-box" id="chatBox">
-            <div class="message msg-ai">老闆，歡迎嚟到測試頻道！呢度可以幫你直接測試 .env 裡面嘅 API 引擎有無通。請隨便問我問題！</div>
+            <div class="message msg-ai">老闆，我依家擁有完整嘅記憶、人設同工具啦！你可以當我係 Telegram 咁問我天氣、計鋼筋，或者傾偈！</div>
         </div>
         <div class="chat-input-area">
-            <input type="text" id="userInput" placeholder="輸入測試文字..." onkeypress="if(event.key === 'Enter') sendMessage()">
+            <input type="text" id="userInput" placeholder="輸入文字..." onkeypress="if(event.key === 'Enter') sendMessage()">
             <button onclick="sendMessage()">發送</button>
         </div>
     </div>
 
-    <!-- 左下角設定按鈕 -->
     <button class="setting-btn" onclick="document.getElementById('settingsModal').style.display='block'">⚙️ Setting</button>
 
-    <!-- 設定 Modal 彈出視窗 -->
     <div id="settingsModal" class="modal">
         <div class="modal-content">
             <span class="close-btn" onclick="document.getElementById('settingsModal').style.display='none'">&times;</span>
@@ -107,22 +115,22 @@ HTML_TEMPLATE = """
             <hr style="margin: 30px 0; border: 0; border-top: 1px solid #eee;">
             <form method="POST" action="/restart" onsubmit="return confirm('確定要強行重新啟動二郎神嗎？');">
                 <h3>🚀 系統操作：</h3>
-                <p style="color: #5f6368; font-size: 14px;">(修改 .env 後，必須點擊下方按鈕重啟大腦才會生效)</p>
                 <button type="submit" class="btn-restart">🔄 重新啟動 bot.py</button>
+            </form>
+            <form method="POST" action="/clear_memory" onsubmit="return confirm('清除網頁版記憶體？');">
+                <button type="submit" style="background-color: #fbbc04; color: black; padding: 12px; width: 100%; border: none; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 15px;">🧠 清空網頁版記憶</button>
             </form>
             <a href="/logout" class="btn-logout">🚪 安全登出</a>
         </div>
     </div>
 
     <script>
-        // 聊天室發送訊息邏輯
         async function sendMessage() {
             const inputField = document.getElementById('userInput');
             const chatBox = document.getElementById('chatBox');
             const text = inputField.value.trim();
             if (!text) return;
 
-            // 顯示用戶訊息
             const userMsg = document.createElement('div');
             userMsg.className = 'message msg-user';
             userMsg.textContent = text;
@@ -130,10 +138,9 @@ HTML_TEMPLATE = """
             inputField.value = '';
             chatBox.scrollTop = chatBox.scrollHeight;
 
-            // 顯示 AI 思考中
             const aiMsg = document.createElement('div');
             aiMsg.className = 'message msg-ai';
-            aiMsg.textContent = '⏳ 引擎連線中...';
+            aiMsg.textContent = '⏳ 思考與調用工具中...';
             chatBox.appendChild(aiMsg);
             chatBox.scrollTop = chatBox.scrollHeight;
 
@@ -156,7 +163,6 @@ HTML_TEMPLATE = """
             chatBox.scrollTop = chatBox.scrollHeight;
         }
         
-        // 點擊 Modal 外圍自動關閉視窗
         window.onclick = function(event) {
             var modal = document.getElementById('settingsModal');
             if (event.target == modal) {
@@ -179,7 +185,6 @@ def index():
         with open(ENV_PATH, "r", encoding="utf-8") as f:
             env_content = f.read()
     
-    # 判斷是否剛剛 Save 完需要自動彈出 Modal
     show_settings = request.args.get('show_settings') == '1'
     return render_template_string(HTML_TEMPLATE, logged_in=True, env_content=env_content, show_settings=show_settings)
 
@@ -187,7 +192,7 @@ def index():
 def login():
     if request.form.get('pwd') == ADMIN_PASSWORD:
         session['logged_in'] = True
-        flash("✅ 登入成功！歡迎返嚟。")
+        flash("✅ 登入成功！")
     else:
         flash("❌ 密碼錯誤！")
     return redirect('/')
@@ -197,6 +202,13 @@ def logout():
     session.pop('logged_in', None)
     return redirect('/')
 
+@app.route('/clear_memory', methods=['POST'])
+def clear_memory():
+    global WEB_MEMORY
+    WEB_MEMORY = []
+    flash("✅ 網頁版記憶體已清空！")
+    return redirect('/?show_settings=1')
+
 @app.route('/save', methods=['POST'])
 def save():
     if not session.get('logged_in'): return redirect('/')
@@ -205,7 +217,6 @@ def save():
     with open(ENV_PATH, "w", encoding="utf-8") as f:
         f.write(new_content)
     flash("✅ 設定已儲存！請緊記點擊「重新啟動 bot.py」令新設定生效。")
-    # 儲存後保持 Modal 開啟
     return redirect('/?show_settings=1')
 
 @app.route('/restart', methods=['POST'])
@@ -219,19 +230,22 @@ def restart():
         flash(f"❌ 重啟失敗：{str(e)}")
     return redirect('/?show_settings=1')
 
-# --- 新增：純文字 API 測試對話接口 ---
+# --- 升級版：包含完整人設、記憶與工具嘅 API ---
 @app.route('/api/chat', methods=['POST'])
-def api_chat():
+async def api_chat():
+    global WEB_MEMORY
     if not session.get('logged_in'): return jsonify({"error": "未授權訪問"}), 401
     
     user_text = request.json.get('message', '')
     if not user_text: return jsonify({"error": "內容不能為空"}), 400
 
-    # 每次對話都實時讀取 .env，保證測試到最新設定
     config = dotenv_values(ENV_PATH)
+    bot_name = config.get("BOT_NAME", "二郎神")
+    owner_name = config.get("OWNER_NAME", "老闆")
+    tz_str = config.get("TIMEZONE", "Asia/Hong_Kong")
     model = config.get("MODEL_NAME", "gemini-3.1-flash-lite-preview")
     
-    # 尋找第一個未被 # 封印嘅引擎
+    # 尋找可用引擎
     api_url, api_key = None, None
     for i in range(1, 11):
         u = config.get(f"API_URL_{i}")
@@ -245,26 +259,83 @@ def api_chat():
         api_key = config.get("API_KEY_3")
 
     if not api_url or not api_key:
-        return jsonify({"error": "找不到有效的 API 引擎，請打開 Setting 檢查配置！"}), 500
+        return jsonify({"error": "找不到有效的 API 引擎，請檢查 Setting 配置！"}), 500
+
+    # 1. 構建 System Prompt (身份與時間)
+    local_time = datetime.datetime.now(ZoneInfo(tz_str))
+    sys_prompt = f"""你是{bot_name}，{owner_name}的專屬 AI 助理。請用地道廣東話回答。
+    你現在正在 Web 控制面板與老闆對話。
+    現在時間：{local_time.strftime('%Y-%m-%d %H:%M')}。"""
+
+    # 2. 處理記憶體
+    if not WEB_MEMORY:
+        WEB_MEMORY.append({"role": "system", "content": sys_prompt})
+    else:
+        WEB_MEMORY[0]["content"] = sys_prompt
+        
+    WEB_MEMORY.append({"role": "user", "content": user_text})
+    
+    if len(WEB_MEMORY) > MAX_HISTORY * 2 + 1:
+        WEB_MEMORY.pop(1)
+        WEB_MEMORY.pop(1)
+
+    # 3. 過濾不適合網頁版嘅工具 (避免報錯)
+    forbidden_tools = ['set_reminder', 'schedule_daily_weather']
+    web_tools = [t for t in GET_TOOLS_LIST if t['function']['name'] not in forbidden_tools]
 
     payload = {
         "model": model,
-        "messages": [{"role": "user", "content": user_text}]
+        "messages": WEB_MEMORY,
+        "tools": web_tools,
+        "tool_choice": "auto"
     }
 
-    req = urllib.request.Request(api_url, data=json.dumps(payload).encode('utf-8'), method='POST')
-    req.add_header('Content-Type', 'application/json')
-    req.add_header('Authorization', f'Bearer {api_key}')
+    headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {api_key}'}
     if 'googleapis.com' in api_url:
-        req.add_header('x-goog-api-key', api_key)
+        headers['x-goog-api-key'] = api_key
 
+    # 4. 非同步調用 API 與執行工具
     try:
-        with urllib.request.urlopen(req, timeout=30) as response:
-            res_data = json.loads(response.read().decode('utf-8'))
-            reply = res_data['choices'][0]['message']['content']
-            return jsonify({"reply": reply})
+        async with aiohttp.ClientSession() as http_session:
+            async with http_session.post(api_url, headers=headers, json=payload) as resp:
+                data = await resp.json()
+                msg = data['choices'][0]['message']
+
+                # 如果 AI 決定調用工具 (例如查天氣)
+                if msg.get('tool_calls'):
+                    # 臨時記憶體：避免將舊 Tool calls 寫入永久記憶導致 Google 400 Bug
+                    temp_memory = list(WEB_MEMORY)
+                    temp_memory.append(msg)
+                    
+                    for tc in msg['tool_calls']:
+                        fn_name = tc['function']['name']
+                        args_raw = tc['function']['arguments']
+                        args = args_raw if isinstance(args_raw, dict) else json.loads(args_raw)
+                        
+                        try:
+                            # 執行工具 (忽略 Telegram 專用嘅 context 參數)
+                            if fn_name in AGENT_TOOLS_REGISTRY:
+                                res = await AGENT_TOOLS_REGISTRY[fn_name]["func"](chat_id=0, context=None, **args)
+                                temp_memory.append({"role": "tool", "tool_call_id": tc['id'], "name": fn_name, "content": str(res)})
+                        except Exception as e:
+                            temp_memory.append({"role": "tool", "tool_call_id": tc['id'], "name": fn_name, "content": f"工具執行失敗: {str(e)}"})
+
+                    # 將工具結果發送回 AI 進行總結
+                    payload["messages"] = temp_memory
+                    async with http_session.post(api_url, headers=headers, json=payload) as resp2:
+                        data2 = await resp2.json()
+                        final_reply = data2['choices'][0]['message']['content']
+                        WEB_MEMORY.append({"role": "assistant", "content": final_reply})
+                        return jsonify({"reply": final_reply})
+                else:
+                    # 純對話回覆
+                    reply = msg.get('content', "✅ 已收到指令。")
+                    WEB_MEMORY.append({"role": "assistant", "content": reply})
+                    return jsonify({"reply": reply})
+                    
     except Exception as e:
-        return jsonify({"error": f"連線失敗 (可能係 HTTP 400 / 429 錯誤) : {str(e)}"}), 500
+        WEB_MEMORY.pop() # 失敗時撤銷用戶嘅發言
+        return jsonify({"error": f"連線或執行失敗: {str(e)}"}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
