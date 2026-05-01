@@ -97,10 +97,10 @@ HTML_TEMPLATE = """
         <!-- --- 修改頭像大小為 50px，並加強間距 --- -->
         <div class="chat-header" style="display: flex; align-items: center; justify-content: center; gap: 15px;">
             <img src="https://raw.githubusercontent.com/gdtohk/ErlangShen-Agent/main/ErlangShen_logo.png" alt="二郎神" style="height: 50px; width: 50px; border-radius: 50%; object-fit: cover; background: white; border: 2px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.5);">
-            <span style="font-size: 22px;">二郎神大腦 - Web 旗艦版</span>
+            <span style="font-size: 22px;">ErlangShen Agent - Web</span>
         </div>
         <div class="chat-box" id="chatBox">
-            <div class="message msg-ai">老闆，我依家擁有完整嘅記憶、人設同工具啦！你可以當我係 Telegram 咁問我天氣、計鋼筋，或者傾偈！</div>
+            <div class="message msg-ai">ErlangShen Chat</div>
         </div>
         <div class="chat-input-area">
             <input type="text" id="userInput" placeholder="輸入文字..." onkeypress="if(event.key === 'Enter') sendMessage()">
