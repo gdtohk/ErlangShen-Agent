@@ -91,7 +91,10 @@ HTML_TEMPLATE = """
     {% else %}
     
     <div class="chat-container">
-        <div class="chat-header">🤖 二郎神大腦 - Web 旗艦版</div>
+        <div class="chat-header" style="display: flex; align-items: center; justify-content: center; gap: 10px;">
+    <img src="https://raw.githubusercontent.com/gdtohk/ErlangShen-Agent/main/ErlangShen_logo.png" alt="二郎神" style="height: 32px; width: 32px; border-radius: 50%; object-fit: cover; background: white; border: 2px solid white;">
+    <span>二郎神大腦 - Web 旗艦版</span>
+</div>
         <div class="chat-box" id="chatBox">
             <div class="message msg-ai">老闆，我依家擁有完整嘅記憶、人設同工具啦！你可以當我係 Telegram 咁問我天氣、計鋼筋，或者傾偈！</div>
         </div>
