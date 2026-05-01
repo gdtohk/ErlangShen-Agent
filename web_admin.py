@@ -34,7 +34,10 @@ HTML_TEMPLATE = """
         
         /* 聊天室 UI */
         .chat-container { max-width: 900px; margin: 20px auto; width: 95%; flex: 1; display: flex; flex-direction: column; background: white; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); overflow: hidden; position: relative; }
-        .chat-header { background: #1a73e8; color: white; padding: 15px; text-align: center; font-size: 18px; font-weight: bold; }
+        
+        /* --- 修改底色為高級黑 --- */
+        .chat-header { background: #1a1a1a; color: white; padding: 15px; text-align: center; font-size: 18px; font-weight: bold; }
+        
         .chat-box { flex: 1; padding: 20px; overflow-y: auto; background: #fafafa; display: flex; flex-direction: column; gap: 15px; }
         .message { max-width: 75%; padding: 12px 18px; border-radius: 8px; line-height: 1.5; font-size: 15px; word-wrap: break-word; }
         .msg-user { background: #1a73e8; color: white; align-self: flex-end; border-bottom-right-radius: 0; }
@@ -91,10 +94,11 @@ HTML_TEMPLATE = """
     {% else %}
     
     <div class="chat-container">
-        <div class="chat-header" style="display: flex; align-items: center; justify-content: center; gap: 10px;">
-    <img src="https://raw.githubusercontent.com/gdtohk/ErlangShen-Agent/main/ErlangShen_logo.png" alt="二郎神" style="height: 32px; width: 32px; border-radius: 50%; object-fit: cover; background: white; border: 2px solid white;">
-    <span>二郎神大腦 - Web 旗艦版</span>
-</div>
+        <!-- --- 修改頭像大小為 50px，並加強間距 --- -->
+        <div class="chat-header" style="display: flex; align-items: center; justify-content: center; gap: 15px;">
+            <img src="https://raw.githubusercontent.com/gdtohk/ErlangShen-Agent/main/ErlangShen_logo.png" alt="二郎神" style="height: 50px; width: 50px; border-radius: 50%; object-fit: cover; background: white; border: 2px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.5);">
+            <span style="font-size: 22px;">二郎神大腦 - Web 旗艦版</span>
+        </div>
         <div class="chat-box" id="chatBox">
             <div class="message msg-ai">老闆，我依家擁有完整嘅記憶、人設同工具啦！你可以當我係 Telegram 咁問我天氣、計鋼筋，或者傾偈！</div>
         </div>
