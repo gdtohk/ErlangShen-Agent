@@ -25,7 +25,7 @@ HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-    <title>二郎神大腦 控制中心</title>
+    <title>ErlangShen Agent 控制中心</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f0f2f5; height: 100vh; display: flex; flex-direction: column; }
@@ -35,9 +35,13 @@ HTML_TEMPLATE = """
         /* 聊天室 UI */
         .chat-container { max-width: 900px; margin: 20px auto; width: 95%; flex: 1; display: flex; flex-direction: column; background: white; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); overflow: hidden; position: relative; }
         
-        /* --- 修改底色為高級黑 --- */
-        .chat-header { background: #1a1a1a; color: white; padding: 15px; text-align: center; font-size: 18px; font-weight: bold; }
+        /* --- 修改頂部 Header 為相對定位，方便容納左邊按鈕 --- */
+        .chat-header { position: relative; background: #1a1a1a; color: white; padding: 15px; display: flex; align-items: center; justify-content: center; gap: 15px; font-weight: bold; }
         
+        /* --- 新增：頂部左上角 Setting 按鈕 --- */
+        .header-setting-btn { position: absolute; left: 20px; background: #333; color: #ccc; border: 1px solid #555; border-radius: 6px; padding: 6px 12px; font-size: 13px; cursor: pointer; transition: 0.3s; display: flex; align-items: center; gap: 5px; }
+        .header-setting-btn:hover { background: #555; color: white; border-color: #777; }
+
         .chat-box { flex: 1; padding: 20px; overflow-y: auto; background: #fafafa; display: flex; flex-direction: column; gap: 15px; }
         .message { max-width: 75%; padding: 12px 18px; border-radius: 8px; line-height: 1.5; font-size: 15px; word-wrap: break-word; }
         .msg-user { background: #1a73e8; color: white; align-self: flex-end; border-bottom-right-radius: 0; }
@@ -46,10 +50,6 @@ HTML_TEMPLATE = """
         .chat-input-area input { flex: 1; padding: 12px; font-size: 15px; border: 1px solid #ccc; border-radius: 6px; outline: none; }
         .chat-input-area button { padding: 12px 24px; font-size: 15px; font-weight: bold; background: #34a853; color: white; border: none; border-radius: 6px; cursor: pointer; transition: 0.3s; }
         .chat-input-area button:hover { background: #2b8a44; }
-
-        /* 左下角 Setting 按鈕 */
-        .setting-btn { position: fixed; bottom: 20px; left: 20px; background: #5f6368; color: white; border: none; border-radius: 50px; padding: 12px 20px; font-size: 16px; font-weight: bold; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.2); transition: 0.3s; z-index: 100; }
-        .setting-btn:hover { background: #3c4043; transform: scale(1.05); }
 
         /* Modal 設定視窗 */
         .modal { display: {% if show_settings %}block{% else %}none{% endif %}; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); overflow: auto; }
@@ -94,21 +94,22 @@ HTML_TEMPLATE = """
     {% else %}
     
     <div class="chat-container">
-        <!-- --- 修改頭像大小為 50px，並加強間距 --- -->
-        <div class="chat-header" style="display: flex; align-items: center; justify-content: center; gap: 15px;">
+        <!-- 包含 Setting 按鈕、頭像與標題嘅完美 Header -->
+        <div class="chat-header">
+            <button class="header-setting-btn" onclick="document.getElementById('settingsModal').style.display='block'">⚙️ Setting</button>
             <img src="https://raw.githubusercontent.com/gdtohk/ErlangShen-Agent/main/ErlangShen_logo.png" alt="二郎神" style="height: 50px; width: 50px; border-radius: 50%; object-fit: cover; background: white; border: 2px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.5);">
             <span style="font-size: 22px;">ErlangShen Agent - Web</span>
         </div>
+        
         <div class="chat-box" id="chatBox">
-            <div class="message msg-ai">ErlangShen Chat</div>
+            <div class="message msg-ai">老闆你好！ErlangShen 喺度。今晚有咩我可以幫到你？</div>
         </div>
+        
         <div class="chat-input-area">
             <input type="text" id="userInput" placeholder="輸入文字..." onkeypress="if(event.key === 'Enter') sendMessage()">
             <button onclick="sendMessage()">發送</button>
         </div>
     </div>
-
-    <button class="setting-btn" onclick="document.getElementById('settingsModal').style.display='block'">⚙️ Setting</button>
 
     <div id="settingsModal" class="modal">
         <div class="modal-content">
@@ -237,7 +238,6 @@ def restart():
         flash(f"❌ 重啟失敗：{str(e)}")
     return redirect('/?show_settings=1')
 
-# --- 升級版：包含完整人設、記憶與工具嘅 API ---
 @app.route('/api/chat', methods=['POST'])
 async def api_chat():
     global WEB_MEMORY
@@ -252,7 +252,6 @@ async def api_chat():
     tz_str = config.get("TIMEZONE", "Asia/Hong_Kong")
     model = config.get("MODEL_NAME", "gemini-3.1-flash-lite-preview")
     
-    # 尋找可用引擎
     api_url, api_key = None, None
     for i in range(1, 11):
         u = config.get(f"API_URL_{i}")
@@ -268,13 +267,11 @@ async def api_chat():
     if not api_url or not api_key:
         return jsonify({"error": "找不到有效的 API 引擎，請檢查 Setting 配置！"}), 500
 
-    # 1. 構建 System Prompt (身份與時間)
     local_time = datetime.datetime.now(ZoneInfo(tz_str))
     sys_prompt = f"""你是{bot_name}，{owner_name}的專屬 AI 助理。請用地道廣東話回答。
     你現在正在 Web 控制面板與老闆對話。
     現在時間：{local_time.strftime('%Y-%m-%d %H:%M')}。"""
 
-    # 2. 處理記憶體
     if not WEB_MEMORY:
         WEB_MEMORY.append({"role": "system", "content": sys_prompt})
     else:
@@ -286,7 +283,6 @@ async def api_chat():
         WEB_MEMORY.pop(1)
         WEB_MEMORY.pop(1)
 
-    # 3. 過濾不適合網頁版嘅工具 (避免報錯)
     forbidden_tools = ['set_reminder', 'schedule_daily_weather']
     web_tools = [t for t in GET_TOOLS_LIST if t['function']['name'] not in forbidden_tools]
 
@@ -301,16 +297,13 @@ async def api_chat():
     if 'googleapis.com' in api_url:
         headers['x-goog-api-key'] = api_key
 
-    # 4. 非同步調用 API 與執行工具
     try:
         async with aiohttp.ClientSession() as http_session:
             async with http_session.post(api_url, headers=headers, json=payload) as resp:
                 data = await resp.json()
                 msg = data['choices'][0]['message']
 
-                # 如果 AI 決定調用工具 (例如查天氣)
                 if msg.get('tool_calls'):
-                    # 臨時記憶體：避免將舊 Tool calls 寫入永久記憶導致 Google 400 Bug
                     temp_memory = list(WEB_MEMORY)
                     temp_memory.append(msg)
                     
@@ -320,14 +313,12 @@ async def api_chat():
                         args = args_raw if isinstance(args_raw, dict) else json.loads(args_raw)
                         
                         try:
-                            # 執行工具 (忽略 Telegram 專用嘅 context 參數)
                             if fn_name in AGENT_TOOLS_REGISTRY:
                                 res = await AGENT_TOOLS_REGISTRY[fn_name]["func"](chat_id=0, context=None, **args)
                                 temp_memory.append({"role": "tool", "tool_call_id": tc['id'], "name": fn_name, "content": str(res)})
                         except Exception as e:
                             temp_memory.append({"role": "tool", "tool_call_id": tc['id'], "name": fn_name, "content": f"工具執行失敗: {str(e)}"})
 
-                    # 將工具結果發送回 AI 進行總結
                     payload["messages"] = temp_memory
                     async with http_session.post(api_url, headers=headers, json=payload) as resp2:
                         data2 = await resp2.json()
@@ -335,13 +326,12 @@ async def api_chat():
                         WEB_MEMORY.append({"role": "assistant", "content": final_reply})
                         return jsonify({"reply": final_reply})
                 else:
-                    # 純對話回覆
                     reply = msg.get('content', "✅ 已收到指令。")
                     WEB_MEMORY.append({"role": "assistant", "content": reply})
                     return jsonify({"reply": reply})
                     
     except Exception as e:
-        WEB_MEMORY.pop() # 失敗時撤銷用戶嘅發言
+        WEB_MEMORY.pop() 
         return jsonify({"error": f"連線或執行失敗: {str(e)}"}), 500
 
 if __name__ == '__main__':
