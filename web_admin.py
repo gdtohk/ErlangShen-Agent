@@ -18,7 +18,7 @@ HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-    <title>二郎神 控制面板</title>
+    <title>二郎神配置面板</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; background-color: #f0f2f5; }
@@ -33,12 +33,12 @@ HTML_TEMPLATE = """
         .btn-logout { background-color: #9aa0a6; margin-top: 30px; }
         .btn-login { background-color: #1a73e8; }
         .alert { padding: 15px; background-color: #e8f0fe; border-left: 5px solid #1a73e8; color: #1967d2; margin-bottom: 20px; border-radius: 4px; font-weight: bold; }
-        input[type="password"] { width: 100%; padding: 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; margin-bottom: 15px; }
+        input[type="password"], input[type="text"] { width: 100%; padding: 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; margin-bottom: 15px; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>⚙️ 二郎神大腦 控制面板</h1>
+        <h1>⚙️ ErlangShen Agent Configuration Panel</h1>
         
         {% with messages = get_flashed_messages() %}
           {% if messages %}
@@ -51,9 +51,30 @@ HTML_TEMPLATE = """
         {% if not logged_in %}
             <form method="POST" action="/login">
                 <h3>🔒 系統已鎖定，請輸入管理員密碼：</h3>
-                <input type="password" name="pwd" placeholder="請輸入密碼..." required autofocus>
+                <!-- 加咗 id="pwdInput" -->
+                <input type="password" name="pwd" id="pwdInput" placeholder="請輸入密碼..." required autofocus>
+                
+                <!-- 新增：顯示密碼 Checkbox -->
+                <div style="text-align: right; margin-top: -10px; margin-bottom: 15px;">
+                    <label style="font-size: 14px; color: #5f6368; cursor: pointer;">
+                        <input type="checkbox" onclick="togglePassword()"> 👁️ 顯示密碼
+                    </label>
+                </div>
+
                 <button type="submit" class="btn btn-login">登入系統</button>
             </form>
+
+            <!-- 新增：控制密碼切換嘅 JavaScript -->
+            <script>
+                function togglePassword() {
+                    var x = document.getElementById("pwdInput");
+                    if (x.type === "password") {
+                        x.type = "text";
+                    } else {
+                        x.type = "password";
+                    }
+                }
+            </script>
         {% else %}
             <form method="POST" action="/save">
                 <h3>📝 編輯 .env 設定檔：</h3>
