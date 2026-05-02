@@ -7,7 +7,7 @@ from telegram.ext import Application, MessageHandler, filters, ContextTypes
 import speech_recognition as sr
 from pydub import AudioSegment
 import edge_tts
-import re  # 🌟 新增：正則表達式庫，用嚟對付 AI 幻覺標籤
+import re
 from registry import GET_TOOLS_LIST, AGENT_TOOLS_REGISTRY
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -246,24 +246,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_memory[user_id] = user_memory.get(user_id, [])[:original_memory_len]
         return await update.message.reply_text("❌ 所有 API 引擎均連線失敗！\n詳細原因：\n" + "\n".join(error_msg_list))
 
-    # 🌟 終極過濾器：剷除所有 AI 幻覺標籤 (<audio>, <speak> 等等)
     if final_reply:
-        # 移除 <audio src="...">...</audio> 整個區塊 (無視大小寫)
         final_reply = re.sub(r'<audio.*?>.*?</audio>', '', final_reply, flags=re.DOTALL | re.IGNORECASE)
-        # 移除殘留嘅 <audio> 標籤
         final_reply = re.sub(r'<audio.*?>', '', final_reply, flags=re.IGNORECASE)
-        # 移除 <speak> 標籤
         final_reply = final_reply.replace("<speak>", "").replace("</speak>", "").strip()
 
-    # 確保清空假標籤後，仲有文字畀語音引擎讀
     if final_reply is None or str(final_reply).strip() == "":
         final_reply = "✅ 已經為你準備好語音播報，請收聽。"
         
+    # Telegram 文字回覆（保留 Markdown 粗體，令視覺排版更靚）
     await update.message.reply_text(final_reply)
 
     if is_voice or force_voice:
         try:
-            communicate = edge_tts.Communicate(final_reply, "zh-HK-WanLungNeural")
+            # 🌟 專為語音引擎準備乾淨文字：過濾所有 * # _ 符號，避免讀出「星號」
+            tts_text = final_reply.replace("*", "").replace("#", "").replace("_", "")
+            
+            communicate = edge_tts.Communicate(tts_text, "zh-HK-WanLungNeural")
             await communicate.save(reply_mp3)
             with open(reply_mp3, "rb") as vo: 
                 await update.message.reply_voice(voice=vo)
