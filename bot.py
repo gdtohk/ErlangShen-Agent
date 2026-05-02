@@ -7,6 +7,7 @@ from telegram.ext import Application, MessageHandler, filters, ContextTypes
 import speech_recognition as sr
 from pydub import AudioSegment
 import edge_tts
+import re  # 🌟 新增：正則表達式庫，用嚟對付 AI 幻覺標籤
 from registry import GET_TOOLS_LIST, AGENT_TOOLS_REGISTRY
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -48,6 +49,7 @@ SYSTEM_PROMPT = f"""
 4. 調用 browse_website 後，系統會為你注入網頁截圖，請務必進行視覺分析。
 5. ⚠️ 重要：你目前並不具備觀看 YouTube 影片的能力。如果老闆給你 YouTube 連結，請婉轉告知無法觀看。
 6. ⛈️ 天氣指令：當老闆詢問天氣時，請務必優先調用 `get_hk_weather_detailed` 工具獲取香港天文台數據，嚴禁隨意使用其他全球天氣工具！
+7. 🛑 語音回覆禁令：當老闆要求「用語音回答」時，你只需像平時一樣輸出純文字即可。絕對禁止輸出任何 `<speak>`、`<audio>` 標籤，或任何虛構的錄音檔網址 (如 https://storage.googleapis...)！語音轉換將由後台系統自動處理。
 """
 
 async def daily_morning_report(context: ContextTypes.DEFAULT_TYPE):
@@ -244,12 +246,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_memory[user_id] = user_memory.get(user_id, [])[:original_memory_len]
         return await update.message.reply_text("❌ 所有 API 引擎均連線失敗！\n詳細原因：\n" + "\n".join(error_msg_list))
 
-    # 🌟 核心過濾器：將 <speak> 同 </speak> 強制剷除
+    # 🌟 終極過濾器：剷除所有 AI 幻覺標籤 (<audio>, <speak> 等等)
     if final_reply:
+        # 移除 <audio src="...">...</audio> 整個區塊 (無視大小寫)
+        final_reply = re.sub(r'<audio.*?>.*?</audio>', '', final_reply, flags=re.DOTALL | re.IGNORECASE)
+        # 移除殘留嘅 <audio> 標籤
+        final_reply = re.sub(r'<audio.*?>', '', final_reply, flags=re.IGNORECASE)
+        # 移除 <speak> 標籤
         final_reply = final_reply.replace("<speak>", "").replace("</speak>", "").strip()
 
+    # 確保清空假標籤後，仲有文字畀語音引擎讀
     if final_reply is None or str(final_reply).strip() == "":
-        final_reply = "✅ 指令已處理！"
+        final_reply = "✅ 已經為你準備好語音播報，請收聽。"
         
     await update.message.reply_text(final_reply)
 
