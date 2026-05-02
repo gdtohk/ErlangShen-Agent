@@ -6,7 +6,7 @@ from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
 import speech_recognition as sr
 from pydub import AudioSegment
-from gtts import gTTS
+import edge_tts  # 🌟 升級：換成微軟超自然語音庫
 from registry import GET_TOOLS_LIST, AGENT_TOOLS_REGISTRY
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -108,6 +108,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if os.path.exists(current_file_path): os.remove(current_file_path)
     else:
         content_payload = update.message.text or ""
+
+    # 🌟 判斷老闆文字中有無要求「語音」
+    force_voice = False
+    text_to_check = ""
+    if isinstance(content_payload, str):
+        text_to_check = content_payload
+    elif isinstance(content_payload, list):
+        text_to_check = " ".join([str(item.get("text", "")) for item in content_payload if item.get("type") == "text"])
+    
+    if any(keyword in text_to_check.lower() for keyword in ["語音", "语音", "voice"]):
+        force_voice = True
 
     local_time = datetime.datetime.now(ZoneInfo(TIMEZONE_STR))
     dynamic_prompt = SYSTEM_PROMPT + f"\n\n現在時間：{local_time.strftime('%Y-%m-%d %H:%M')}。"
@@ -246,12 +257,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     await update.message.reply_text(final_reply)
 
-    if is_voice:
+    # 🌟 如果係語音輸入，或者文字中有強制語音指令，就用語音回覆
+    if is_voice or force_voice:
         try:
-            gTTS(text=final_reply, lang='yue').save(reply_mp3)
-            with open(reply_mp3, "rb") as vo: await update.message.reply_voice(voice=vo)
-            os.remove(reply_mp3)
-        except: pass
+            # 使用微軟 Edge-TTS 雲龍男聲 (香港廣東話)
+            communicate = edge_tts.Communicate(final_reply, "zh-HK-WanLungNeural")
+            await communicate.save(reply_mp3)
+            with open(reply_mp3, "rb") as vo: 
+                await update.message.reply_voice(voice=vo)
+            if os.path.exists(reply_mp3):
+                os.remove(reply_mp3)
+        except Exception as e: 
+            print(f"TTS 發生錯誤: {e}")
+            pass
     
     if len(user_memory[user_id]) > MAX_HISTORY * 2 + 1:
         user_memory[user_id].pop(1)
