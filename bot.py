@@ -6,7 +6,7 @@ from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
 import speech_recognition as sr
 from pydub import AudioSegment
-import edge_tts  # 🌟 升級：換成微軟超自然語音庫
+import edge_tts
 from registry import GET_TOOLS_LIST, AGENT_TOOLS_REGISTRY
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -109,7 +109,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         content_payload = update.message.text or ""
 
-    # 🌟 判斷老闆文字中有無要求「語音」
     force_voice = False
     text_to_check = ""
     if isinstance(content_payload, str):
@@ -128,7 +127,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         user_memory[user_id][0]["content"] = dynamic_prompt
     
-    # 在真實記憶體中加入老闆的最新提問
     user_memory[user_id].append({"role": "user", "content": content_payload})
     
     random.shuffle(API_ENDPOINTS)
@@ -140,7 +138,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         current_url = endpoint["url"]
         current_key = endpoint["key"]
         
-        # 🚨 沙盒隔離機制：每次重試都用一份全新複製的記憶與 Payload，防止交叉污染！
         temp_memory = list(user_memory[user_id])
         temp_payload = {
             "model": GEMINI_MODEL, 
@@ -195,7 +192,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         if msg.get("content"):
                             clean_assistant_msg["content"] = msg["content"]
                             
-                        # 將清理好的記錄放入「沙盒記憶體」
                         temp_memory.append(clean_assistant_msg)
                         
                         for tc in clean_tool_calls:
@@ -218,7 +214,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                 tool_out = str(res)
                                 temp_memory.append({"role": "tool", "tool_call_id": tc['id'], "name": fn, "content": tool_out})
                         
-                        # 🚨 絕不刪除 tools 清單，滿足 Google 嚴格要求
                         temp_payload["messages"] = temp_memory
                         
                         async with session.post(current_url, headers=headers, json=temp_payload) as res2:
@@ -236,7 +231,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     else:
                         final_reply = msg.get('content', "唔明。")
 
-                    # 🎉 如果成功跑到呢度，證明呢個節點大成功！將沙盒記憶體覆寫落真實記憶體！
                     user_memory[user_id] = temp_memory
                     success = True
                     break
@@ -250,17 +244,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_memory[user_id] = user_memory.get(user_id, [])[:original_memory_len]
         return await update.message.reply_text("❌ 所有 API 引擎均連線失敗！\n詳細原因：\n" + "\n".join(error_msg_list))
 
-    user_memory[user_id].append({"role": "assistant", "content": final_reply})
-    
+    # 🌟 核心過濾器：將 <speak> 同 </speak> 強制剷除
+    if final_reply:
+        final_reply = final_reply.replace("<speak>", "").replace("</speak>", "").strip()
+
     if final_reply is None or str(final_reply).strip() == "":
         final_reply = "✅ 指令已處理！"
         
     await update.message.reply_text(final_reply)
 
-    # 🌟 如果係語音輸入，或者文字中有強制語音指令，就用語音回覆
     if is_voice or force_voice:
         try:
-            # 使用微軟 Edge-TTS 雲龍男聲 (香港廣東話)
             communicate = edge_tts.Communicate(final_reply, "zh-HK-WanLungNeural")
             await communicate.save(reply_mp3)
             with open(reply_mp3, "rb") as vo: 
@@ -270,6 +264,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e: 
             print(f"TTS 發生錯誤: {e}")
             pass
+    
+    user_memory[user_id].append({"role": "assistant", "content": final_reply})
     
     if len(user_memory[user_id]) > MAX_HISTORY * 2 + 1:
         user_memory[user_id].pop(1)
