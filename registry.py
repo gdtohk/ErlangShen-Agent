@@ -7,8 +7,7 @@ import json
 import base64
 import urllib.parse
 import os
-import re  # 🌟 新增：正則表達式，用來清理爬蟲抓返嚟嘅多餘空白
-from scrapling import AsyncFetcher  # 🌟 新增：Scrapling 極速爬蟲庫
+import re
 
 from skills.scheduler import schedule_daily_weather
 from skills.rebar import calc_rebar_weight
@@ -26,8 +25,6 @@ async def get_global_weather(chat_id, context, location):
             async with session.get(url, headers=headers) as resp:
                 if resp.status == 200:
                     data = await resp.json(content_type=None)
-                    
-                    # 🚨 終極防禦：檢查對方畀嘅係咪字典，同埋有冇我們要嘅數據
                     if isinstance(data, dict) and 'current_condition' in data and len(data['current_condition']) > 0:
                         current = data['current_condition'][0]
                         return f"🌍 {location} 天氣數據：氣溫 {current.get('temp_C', '未知')}°C，狀況 {current.get('weatherDesc', [{'value': '未知'}])[0]['value']}。"
@@ -42,7 +39,6 @@ async def search_web(chat_id, context, query):
     print(f"🔍 [Debug] 準備全能搜尋：{query}")
     try:
         formatted_query = query.replace(' ', '+')
-        # 使用 Google News RSS 作為強大的即時資訊入口
         url = f"https://news.google.com/rss/search?q={formatted_query}&hl=zh-HK&gl=HK&ceid=HK:zh-Hant"
         headers = {'User-Agent': 'Mozilla/5.0'}
         async with aiohttp.ClientSession() as session:
@@ -67,11 +63,9 @@ async def browse_website_with_playwright(chat_id, context, url: str):
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
             page = await browser.new_page(viewport={'width': 1280, 'height': 800})
-            # 放寬超時至 60 秒以適應 VPS 網絡
             await page.goto(url, timeout=60000, wait_until="domcontentloaded")
             content = await page.evaluate("document.body.innerText")
             page_title = await page.title()
-            # 壓縮截圖畫質以穿透 API 代理
             screenshot_bytes = await page.screenshot(type='jpeg', quality=30, full_page=False)
             base64_encoded = base64.b64encode(screenshot_bytes).decode('utf-8')
             await browser.close()
@@ -83,27 +77,34 @@ async def browse_website_with_playwright(chat_id, context, url: str):
             })
     except Exception as e: return f"❌ 訪問網頁失敗：{str(e)}"
 
-# ================= Scrapling 極速網頁抓取 (🌟 新增功能) =================
-async def scrape_with_scrapling(chat_id, context, url: str):
-    """使用 Scrapling 極速抓取網頁純文字內容，適合用來閱讀文章或新聞"""
-    print(f"🕷️ [Debug] 準備使用 Scrapling 抓取網頁：{url}")
+# ================= Jina Reader 借刀殺人讀網頁 (🌟 替換 Scrapling) =================
+async def read_webpage_with_jina(chat_id, context, url: str):
+    """使用 Jina API 極速讀取網頁純文字內容，無視大部分防爬蟲機制"""
+    print(f"🥷 [Debug] 準備使用 Jina 借刀殺人讀取網頁：{url}")
     try:
-        fetcher = AsyncFetcher()
-        # 繞過防護抓取網頁
-        page = await fetcher.get(url)
+        # 在原網址前面加上 Jina 嘅 API 前綴
+        jina_url = f"https://r.jina.ai/{url}"
+        headers = {'User-Agent': 'Mozilla/5.0'}
         
-        # 提取網頁所有純文字 (自動過濾 HTML 標籤)
-        raw_text = page.text_content()
+        # 🚨 設置 30 秒強制超時，防止二郎神再次無限期 Hang 機
+        timeout = aiohttp.ClientTimeout(total=30)
         
-        # 清理多餘嘅空白行同空格，壓縮內容大小
-        cleaned_content = re.sub(r'\n\s*\n', '\n', raw_text).strip()
-        
-        # 截取前 3000 字，避免超長網址塞爆大腦 Token
-        final_text = cleaned_content[:3000]
-        
-        return f"🕷️ Scrapling 抓取成功！以下係網頁內容摘錄：\n\n{final_text}"
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(jina_url, headers=headers) as resp:
+                if resp.status == 200:
+                    raw_text = await resp.text()
+                    
+                    # 截取前 3500 字，避免超長文章塞爆大腦 Token
+                    final_text = raw_text[:3500]
+                    return f"🥷 網頁讀取成功！以下係內容摘要：\n\n{final_text}"
+                else:
+                    return f"❌ Jina 伺服器無法解析此網頁 (HTTP {resp.status})，可能被極強防護攔截。"
+                    
+    # 捕捉超時錯誤，優雅回覆老闆
+    except asyncio.TimeoutError:
+        return "❌ 讀取超時 (超過30秒)。目標網站防護極嚴密，已自動放棄以免系統卡死。"
     except Exception as e: 
-        return f"❌ Scrapling 抓取失敗：{str(e)}"
+        return f"❌ 讀取發生錯誤：{str(e)}"
 
 # ================= 工具創建助手 =================
 def create_tool(func, name, desc, params, required):
@@ -120,6 +121,6 @@ AGENT_TOOLS_REGISTRY = {
     "update_from_github": create_tool(update_from_github, "update_from_github", "更新系統代碼。", {}, []),
     "generate_rebar_excel": create_tool(generate_rebar_excel, "generate_rebar_excel", "生成 Excel 報表。", {"report_name": {"type": "string"}, "records": {"type": "array", "items": {"type": "object", "properties": {"d": {"type": "number"}, "length": {"type": "number"}, "qty": {"type": "number"}, "weight": {"type": "number"}}, "required": ["d", "length", "qty", "weight"]}}}, ["report_name", "records"]),
     "browse_website": create_tool(browse_website_with_playwright, "browse_website", "瀏覽網頁並獲取實時截圖分析。", {"url": {"type": "string"}}, ["url"]),
-    "scrape_webpage_text": create_tool(scrape_with_scrapling, "scrape_webpage_text", "使用 Scrapling 極速讀取網頁純文字內容。適合用來閱讀新聞、文章、文檔等大量文字嘅網址。", {"url": {"type": "string"}}, ["url"]) # 🌟 註冊 Scrapling
+    "scrape_webpage_text": create_tool(read_webpage_with_jina, "scrape_webpage_text", "使用 Jina API 極速讀取網頁純文字內容。適合用來閱讀新聞、文章、文檔等大量文字嘅網址。", {"url": {"type": "string"}}, ["url"]) # 🌟 已無縫替換為 Jina
 }
 GET_TOOLS_LIST = [tool["schema"] for tool in AGENT_TOOLS_REGISTRY.values()]
