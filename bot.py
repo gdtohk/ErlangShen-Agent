@@ -38,6 +38,7 @@ TIMEZONE_STR = os.getenv("TIMEZONE", "Asia/Hong_Kong")
 user_memory = {}
 MAX_HISTORY = 10
 
+# 🌟 升級系統提示詞：加入強制匯報機制，及嚴禁 HTML 包裝
 SYSTEM_PROMPT = f"""
 你是{BOT_NAME}，{OWNER_NAME}的專屬 AI 助理。請用地道廣東話回答。
 你具備語音對話、視覺圖片分析、文件解析 (PDF/Excel)、網頁瀏覽與截圖功能。
@@ -49,7 +50,8 @@ SYSTEM_PROMPT = f"""
 4. 調用 browse_website 後，系統會為你注入網頁截圖，請務必進行視覺分析。
 5. ⚠️ 重要：你目前並不具備觀看 YouTube 影片的能力。如果老闆給你 YouTube 連結，請婉轉告知無法觀看。
 6. ⛈️ 天氣指令：當老闆詢問天氣時，請務必優先調用 `get_hk_weather_detailed` 工具獲取香港天文台數據，嚴禁隨意使用其他全球天氣工具！
-7. 🛑 語音回覆禁令：當老闆要求「用語音回答」時，你只需像平時一樣輸出純文字即可。絕對禁止輸出任何 `<speak>`、`<audio>` 標籤，或任何虛構的錄音檔網址 (如 https://storage.googleapis...)！語音轉換將由後台系統自動處理。
+7. 🛑 語音回覆禁令：當老闆要求「用語音回答」時，你只需像平時一樣輸出純文字即可。絕對禁止輸出任何 `<speak>`、`<audio>` 標籤，或任何虛構的錄音檔網址！更不允許用任何 HTML 標籤包裹你的正文內容。
+8. 🕵️‍♂️ 工具自首機制：如果你在回答前調用了任何外部工具 (例如 search_web, scrape_webpage_text, browse_website 等)，你必須在最終回覆的第一行，以「🛠️ [系統報告：已使用 XXX 工具]」的明確格式向老闆匯報，然後再開始正文。
 """
 
 async def daily_morning_report(context: ContextTypes.DEFAULT_TYPE):
@@ -229,7 +231,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             m_data = c_data.get('message', {})
                             if isinstance(m_data, list): m_data = m_data[0]
                             
-                            final_reply = m_data.get('content', "✅ 天氣資訊已獲取。")
+                            final_reply = m_data.get('content', "✅ 資訊已獲取。")
                     else:
                         final_reply = msg.get('content', "唔明。")
 
