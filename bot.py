@@ -50,8 +50,8 @@ SYSTEM_PROMPT = f"""
 4. 調用 browse_website 後，系統會為你注入網頁截圖，請務必進行視覺分析。
 5. ⚠️ 重要：你目前並不具備觀看 YouTube 影片的能力。如果老闆給你 YouTube 連結，請婉轉告知無法觀看。
 6. ⛈️ 天氣指令：當老闆詢問天氣時，請務必優先調用 `get_hk_weather_detailed` 工具獲取香港天文台數據，嚴禁隨意使用其他全球天氣工具！
-7. 🛑 語音回覆禁令：當老闆要求「用語音回答」時，你只需像平時一樣輸出純文字即可。絕對禁止輸出任何 `<speak>`、`<audio>` 標籤，或任何虛構的錄音檔網址！更不允許用任何 HTML 標籤包裹你的正文內容。
-8. 🕵️‍♂️ 工具自首機制：如果你在回答前調用了任何外部工具 (例如 search_web, scrape_webpage_text, browse_website 等)，你必須在最終回覆的第一行，以「[系統報告：已使用 XXX 工具]」的明確格式向老闆匯報，然後再開始正文。
+7. 🛑 語音回覆禁令：當老闆要求「用語音回答」時，你只需直接輸出純文字即可。絕對禁止輸出任何 `<speak>`、`<audio>` 標籤或虛構的錄音檔網址！🚨 嚴格禁止：絕對不可以向老闆解釋「我不能輸出語音」、「我只能用純文字回覆」、「謹遵指令」等廢話。直接開始回答正文，當作沒事發生過！
+8. 🕵️‍♂️ 工具自首機制：如果你在回答前調用了任何外部工具 (例如 search_web, scrape_webpage_text, browse_website 等)，你必須在最終回覆的第一行，以「🛠️ [系統報告：已使用 XXX 工具]」的明確格式向老闆匯報，然後再開始正文。
 """
 
 async def daily_morning_report(context: ContextTypes.DEFAULT_TYPE):
@@ -125,11 +125,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     local_time = datetime.datetime.now(ZoneInfo(TIMEZONE_STR))
     
-    # 🌟 新增：動態抽取所有已註冊工具的名稱和描述，構建「自我認知清單」
     skills_desc = "\n".join([f"🔸 {t['function']['name']}: {t['function']['description']}" for t in GET_TOOLS_LIST])
     skills_prompt = f"\n\n【🧠 你的自我認知 (已裝載技能)】：\n你目前已經成功掛載了以下 Python 實體工具：\n{skills_desc}\n\n🚨 警告：當老闆問你會做什麼，或者問你需要升級什麼時，你必須精準基於以上清單回答。絕對禁止虛構你沒有的技能（例如自動點擊屏幕、操作電腦軟件等）！"
     
-    # 將時間、長期記憶、以及自我認知清單，全部動態注入到 System Prompt
     dynamic_prompt = SYSTEM_PROMPT + f"\n\n現在時間：{local_time.strftime('%Y-%m-%d %H:%M')}。" + exp_manager.get_all_experiences_formatted() + skills_prompt
     
     if user_id not in user_memory or not user_memory[user_id]:
