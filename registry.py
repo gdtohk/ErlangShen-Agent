@@ -8,6 +8,7 @@ import base64
 import urllib.parse
 import os
 import re
+from experience_manager import exp_manager  # 🌟 新增：引入經驗大腦
 
 from skills.scheduler import schedule_daily_weather
 from skills.rebar import calc_rebar_weight
@@ -106,6 +107,11 @@ async def read_webpage_with_jina(chat_id, context, url: str):
     except Exception as e: 
         return f"❌ 讀取發生錯誤：{str(e)}"
 
+# ================= 寫入長期記憶 (🌟 新增功能) =================
+async def save_agent_experience(chat_id, context, content: str):
+    print(f"🧠 [Debug] 正在將經驗寫入大腦：{content}")
+    return exp_manager.add_experience(content)
+
 # ================= 工具創建助手 =================
 def create_tool(func, name, desc, params, required):
     return {"func": func, "schema": {"type": "function", "function": {"name": name, "description": desc, "parameters": {"type": "object", "properties": params, "required": required}}}}
@@ -121,6 +127,7 @@ AGENT_TOOLS_REGISTRY = {
     "update_from_github": create_tool(update_from_github, "update_from_github", "更新系統代碼。", {}, []),
     "generate_rebar_excel": create_tool(generate_rebar_excel, "generate_rebar_excel", "生成 Excel 報表。", {"report_name": {"type": "string"}, "records": {"type": "array", "items": {"type": "object", "properties": {"d": {"type": "number"}, "length": {"type": "number"}, "qty": {"type": "number"}, "weight": {"type": "number"}}, "required": ["d", "length", "qty", "weight"]}}}, ["report_name", "records"]),
     "browse_website": create_tool(browse_website_with_playwright, "browse_website", "瀏覽網頁並獲取實時截圖分析。", {"url": {"type": "string"}}, ["url"]),
-    "scrape_webpage_text": create_tool(read_webpage_with_jina, "scrape_webpage_text", "使用 Jina API 極速讀取網頁純文字內容。適合用來閱讀新聞、文章、文檔等大量文字嘅網址。", {"url": {"type": "string"}}, ["url"]) # 🌟 已無縫替換為 Jina
+    "scrape_webpage_text": create_tool(read_webpage_with_jina, "scrape_webpage_text", "使用 Jina API 極速讀取網頁純文字內容。適合用來閱讀新聞、文章、文檔等大量文字嘅網址。", {"url": {"type": "string"}}, ["url"]),
+    "save_agent_experience": create_tool(save_agent_experience, "save_agent_experience", "儲存重要的工作經驗、規範或老闆的糾正指示到長期記憶庫中。當老闆要求你『記住』某事時調用。", {"content": {"type": "string"}}, ["content"]) # 🌟 新增：註冊記憶工具
 }
 GET_TOOLS_LIST = [tool["schema"] for tool in AGENT_TOOLS_REGISTRY.values()]
