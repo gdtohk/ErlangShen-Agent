@@ -9,7 +9,7 @@ from pydub import AudioSegment
 import edge_tts
 import re
 from registry import GET_TOOLS_LIST, AGENT_TOOLS_REGISTRY
-from experience_manager import exp_manager # 🌟 新增：引入經驗大腦讀取器
+from experience_manager import exp_manager
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 load_dotenv()
@@ -39,7 +39,6 @@ TIMEZONE_STR = os.getenv("TIMEZONE", "Asia/Hong_Kong")
 user_memory = {}
 MAX_HISTORY = 10
 
-# 🌟 升級系統提示詞：加入強制匯報機制，及嚴禁 HTML 包裝
 SYSTEM_PROMPT = f"""
 你是{BOT_NAME}，{OWNER_NAME}的專屬 AI 助理。請用地道廣東話回答。
 你具備語音對話、視覺圖片分析、文件解析 (PDF/Excel)、網頁瀏覽與截圖功能。
@@ -126,8 +125,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     local_time = datetime.datetime.now(ZoneInfo(TIMEZONE_STR))
     
-    # 🌟 核心修改：動態將經驗庫嘅內容，拼接到系統提示詞最尾
-    dynamic_prompt = SYSTEM_PROMPT + f"\n\n現在時間：{local_time.strftime('%Y-%m-%d %H:%M')}。" + exp_manager.get_all_experiences_formatted()
+    # 🌟 新增：動態抽取所有已註冊工具的名稱和描述，構建「自我認知清單」
+    skills_desc = "\n".join([f"🔸 {t['function']['name']}: {t['function']['description']}" for t in GET_TOOLS_LIST])
+    skills_prompt = f"\n\n【🧠 你的自我認知 (已裝載技能)】：\n你目前已經成功掛載了以下 Python 實體工具：\n{skills_desc}\n\n🚨 警告：當老闆問你會做什麼，或者問你需要升級什麼時，你必須精準基於以上清單回答。絕對禁止虛構你沒有的技能（例如自動點擊屏幕、操作電腦軟件等）！"
+    
+    # 將時間、長期記憶、以及自我認知清單，全部動態注入到 System Prompt
+    dynamic_prompt = SYSTEM_PROMPT + f"\n\n現在時間：{local_time.strftime('%Y-%m-%d %H:%M')}。" + exp_manager.get_all_experiences_formatted() + skills_prompt
     
     if user_id not in user_memory or not user_memory[user_id]:
         user_memory[user_id] = [{"role": "system", "content": dynamic_prompt}]
@@ -174,6 +177,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if isinstance(choice_data, list): choice_data = choice_data[0]
                     msg = choice_data.get('message', {})
                     if isinstance(msg, list): msg = msg[0]
+                    
+                    logging.info(f"API 原始回傳: {msg}")
 
                     if msg.get('tool_calls'):
                         raw_tc_list = msg['tool_calls']
@@ -236,7 +241,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             
                             final_reply = m_data.get('content', "✅ 資訊已獲取。")
                     else:
-                        final_reply = msg.get('content', "唔明。")
+                        final_reply = msg.get('content', "")
 
                     user_memory[user_id] = temp_memory
                     success = True
@@ -252,32 +257,28 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("❌ 所有 API 引擎均連線失敗！\n詳細原因：\n" + "\n".join(error_msg_list))
 
     if final_reply:
-        # 🌟 修正：精準剝殼！只剷除 <audio> 同 </audio> 標籤本身，絕對保留中間嘅文字！(修復你提供代碼中舊版 Regex 的誤殺 Bug)
         final_reply = re.sub(r'</?audio[^>]*>', '', final_reply, flags=re.IGNORECASE)
         final_reply = final_reply.replace("<speak>", "").replace("</speak>", "").strip()
-        # 額外防護：清理可能殘留嘅假 mp3 連結 (避免雲龍讀出條 URL)
         final_reply = re.sub(r'https?://[^\s]+\.mp3', '', final_reply, flags=re.IGNORECASE)
 
     if final_reply is None or str(final_reply).strip() == "":
-        final_reply = "✅ 已經為你準備好語音播報，請收聽。"
+        final_reply = "⚠️ [系統攔截] 報告老闆，大腦回傳了空白內容！\n這通常是因為問題（例如「繞過反爬」）觸發了 AI 供應商的安全審查機制（Safety Filters），被判定為敏感操作而強制消音。你可以查看 agent.log 了解 API 的原始回傳。"
         
-    # Telegram 文字回覆（保留 Markdown 粗體，令視覺排版更靚）
     await update.message.reply_text(final_reply)
 
     if is_voice or force_voice:
-        try:
-            # 🌟 專為語音引擎準備乾淨文字：過濾所有 * # _ 符號，避免讀出「星號」
-            tts_text = final_reply.replace("*", "").replace("#", "").replace("_", "")
-            
-            communicate = edge_tts.Communicate(tts_text, "zh-HK-WanLungNeural")
-            await communicate.save(reply_mp3)
-            with open(reply_mp3, "rb") as vo: 
-                await update.message.reply_voice(voice=vo)
-            if os.path.exists(reply_mp3):
-                os.remove(reply_mp3)
-        except Exception as e: 
-            print(f"TTS 發生錯誤: {e}")
-            pass
+        if not final_reply.startswith("⚠️ [系統攔截]"):
+            try:
+                tts_text = final_reply.replace("*", "").replace("#", "").replace("_", "")
+                communicate = edge_tts.Communicate(tts_text, "zh-HK-WanLungNeural")
+                await communicate.save(reply_mp3)
+                with open(reply_mp3, "rb") as vo: 
+                    await update.message.reply_voice(voice=vo)
+                if os.path.exists(reply_mp3):
+                    os.remove(reply_mp3)
+            except Exception as e: 
+                print(f"TTS 發生錯誤: {e}")
+                pass
     
     user_memory[user_id].append({"role": "assistant", "content": final_reply})
     
