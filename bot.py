@@ -9,6 +9,7 @@ from pydub import AudioSegment
 import edge_tts
 import re
 from registry import GET_TOOLS_LIST, AGENT_TOOLS_REGISTRY
+from experience_manager import exp_manager # 🌟 新增：引入經驗大腦讀取器
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 load_dotenv()
@@ -51,7 +52,7 @@ SYSTEM_PROMPT = f"""
 5. ⚠️ 重要：你目前並不具備觀看 YouTube 影片的能力。如果老闆給你 YouTube 連結，請婉轉告知無法觀看。
 6. ⛈️ 天氣指令：當老闆詢問天氣時，請務必優先調用 `get_hk_weather_detailed` 工具獲取香港天文台數據，嚴禁隨意使用其他全球天氣工具！
 7. 🛑 語音回覆禁令：當老闆要求「用語音回答」時，你只需像平時一樣輸出純文字即可。絕對禁止輸出任何 `<speak>`、`<audio>` 標籤，或任何虛構的錄音檔網址！更不允許用任何 HTML 標籤包裹你的正文內容。
-8. 🕵️‍♂️ 工具自首機制：如果你在回答前調用了任何外部工具 (例如 search_web, scrape_webpage_text, browse_website 等)，你必須在最終回覆的第一行，以「[系統報告：已使用 XXX 工具]」的明確格式向老闆匯報，然後再開始正文。
+8. 🕵️‍♂️ 工具自首機制：如果你在回答前調用了任何外部工具 (例如 search_web, scrape_webpage_text, browse_website 等)，你必須在最終回覆的第一行，以「🛠️ [系統報告：已使用 XXX 工具]」的明確格式向老闆匯報，然後再開始正文。
 """
 
 async def daily_morning_report(context: ContextTypes.DEFAULT_TYPE):
@@ -124,7 +125,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         force_voice = True
 
     local_time = datetime.datetime.now(ZoneInfo(TIMEZONE_STR))
-    dynamic_prompt = SYSTEM_PROMPT + f"\n\n現在時間：{local_time.strftime('%Y-%m-%d %H:%M')}。"
+    
+    # 🌟 核心修改：動態將經驗庫嘅內容，拼接到系統提示詞最尾
+    dynamic_prompt = SYSTEM_PROMPT + f"\n\n現在時間：{local_time.strftime('%Y-%m-%d %H:%M')}。" + exp_manager.get_all_experiences_formatted()
     
     if user_id not in user_memory or not user_memory[user_id]:
         user_memory[user_id] = [{"role": "system", "content": dynamic_prompt}]
@@ -249,9 +252,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("❌ 所有 API 引擎均連線失敗！\n詳細原因：\n" + "\n".join(error_msg_list))
 
     if final_reply:
-        final_reply = re.sub(r'<audio.*?>.*?</audio>', '', final_reply, flags=re.DOTALL | re.IGNORECASE)
-        final_reply = re.sub(r'<audio.*?>', '', final_reply, flags=re.IGNORECASE)
+        # 🌟 修正：精準剝殼！只剷除 <audio> 同 </audio> 標籤本身，絕對保留中間嘅文字！(修復你提供代碼中舊版 Regex 的誤殺 Bug)
+        final_reply = re.sub(r'</?audio[^>]*>', '', final_reply, flags=re.IGNORECASE)
         final_reply = final_reply.replace("<speak>", "").replace("</speak>", "").strip()
+        # 額外防護：清理可能殘留嘅假 mp3 連結 (避免雲龍讀出條 URL)
+        final_reply = re.sub(r'https?://[^\s]+\.mp3', '', final_reply, flags=re.IGNORECASE)
 
     if final_reply is None or str(final_reply).strip() == "":
         final_reply = "✅ 已經為你準備好語音播報，請收聽。"
