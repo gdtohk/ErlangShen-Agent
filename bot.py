@@ -49,9 +49,10 @@ SYSTEM_PROMPT = f"""
 3. 如果工具調用失敗，請老實告訴老闆，絕對禁止憑空編造！
 4. 調用 browse_website 後，系統會為你注入網頁截圖，請務必進行視覺分析。
 5. ⚠️ 重要：你目前並不具備觀看 YouTube 影片的能力。如果老闆給你 YouTube 連結，請婉轉告知無法觀看。
-6. ⛈️ 天氣指令：當老闆詢問天氣時，請務必優先調用 `get_hk_weather_detailed` 工具獲取香港天文台數據，嚴禁隨意使用其他全球天氣工具！
-7. 🛑 語音回覆禁令：當老闆要求「用語音回答」時，你只需直接輸出純文字即可。絕對禁止輸出任何 `<speak>`、`<audio>` 標籤或虛構的錄音檔網址！🚨 嚴格禁止：絕對不可以向老闆解釋「我不能輸出語音」、「我只能用純文字回覆」、「謹遵指令」等廢話。直接開始回答正文，當作沒事發生過！
-8. 🕵️‍♂️ 工具自首機制：如果你在回答前調用了任何外部工具 (例如 search_web, scrape_webpage_text, browse_website 等)，你必須在最終回覆的第一行，以「[系統報告：已使用 XXX 工具]」的明確格式向老闆匯報，然後再開始正文。
+6. 📐 工程圖則與 PDF 解析：當老闆上傳 PDF (尤其是工程圖則、BBS 報表) 時，系統已將其渲染為高清圖像。請你以專業 QS 及鋼筋拆圖員的視角，仔細觀察圖紙上的線條、標註、表格及尺寸，進行精準的視覺數據提取與分析。
+7. ⛈️ 天氣指令：當老闆詢問天氣時，請務必優先調用 `get_hk_weather_detailed` 工具獲取香港天文台數據，嚴禁隨意使用其他全球天氣工具！
+8. 🛑 語音回覆禁令：當老闆要求「用語音回答」時，你只需直接輸出純文字即可。絕對禁止輸出任何 `<speak>`、`<audio>` 標籤或虛構的錄音檔網址！🚨 嚴格禁止：絕對不可以向老闆解釋「我不能輸出語音」、「我只能用純文字回覆」、「謹遵指令」等廢話。直接開始回答正文，當作沒事發生過！
+9. 🕵️‍♂️ 工具自首機制：如果你在回答前調用了任何外部工具 (例如 search_web, scrape_webpage_text, browse_website 等)，你必須在最終回覆的第一行，以「🛠️ [系統報告：已使用 XXX 工具]」的明確格式向老闆匯報，然後再開始正文。
 """
 
 async def daily_morning_report(context: ContextTypes.DEFAULT_TYPE):
@@ -85,6 +86,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         finally:
             if os.path.exists(temp_ogg): os.remove(temp_ogg)
             if os.path.exists(temp_wav): os.remove(temp_wav)
+            
     elif update.message.photo:
         await context.bot.send_chat_action(chat_id=chat_id, action='typing')
         try:
@@ -94,22 +96,46 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64.b64encode(byte_array).decode('utf-8')}"}}
             ]
         except: return await update.message.reply_text("❌ 圖片處理失敗")
+        
     elif update.message.document:
         await context.bot.send_chat_action(chat_id=chat_id, action='typing')
         doc = update.message.document
         file_ext = os.path.splitext(doc.file_name)[1].lower()
-        status_msg = await update.message.reply_text(f"📑 閱讀：{doc.file_name}...")
+        status_msg = await update.message.reply_text(f"📑 正在接收文件：{doc.file_name}...")
         current_file_path = f"temp_{doc.file_id}{file_ext}"
         await (await doc.get_file()).download_to_drive(current_file_path)
         try:
-            if file_ext == '.pdf': extracted_content = "".join([page.get_text() for page in fitz.open(current_file_path)])
-            elif file_ext in ['.xlsx', '.xls']: extracted_content = pd.read_excel(current_file_path).to_markdown(index=False)
-            else: return await status_msg.edit_text("❌ 未支援格式")
-            content_payload = f"【文件內容】：\n{extracted_content}\n\n【問題】：{update.message.caption or '請分析文件'}"
-            await status_msg.edit_text("✅ 讀完。")
-        except: return await status_msg.edit_text("❌ 解析失敗")
+            if file_ext == '.pdf':
+                # 🌟 核心升級：視覺化 PDF 解析 (針對工程圖則)
+                doc_fitz = fitz.open(current_file_path)
+                content_payload = [{"type": "text", "text": update.message.caption or '請以專業 QS 及鋼筋拆圖員的角度，詳細分析這份工程圖紙/文件。提取當中的尺寸、鋼筋資訊或表格數據。'}]
+                
+                # 限制最多處理前 5 頁，避免 API 超載及節省 Token
+                max_pages = min(5, len(doc_fitz))
+                await status_msg.edit_text(f"📐 正在將圖紙 (共 {max_pages} 頁) 轉換為高清視覺矩陣...")
+                
+                for page_num in range(max_pages):
+                    page = doc_fitz[page_num]
+                    # 使用 2.0x 矩陣放大解析度，確保 CAD 細節/尺寸字體清晰可見
+                    zoom_matrix = fitz.Matrix(2.0, 2.0)
+                    pix = page.get_pixmap(matrix=zoom_matrix)
+                    img_bytes = pix.tobytes("jpeg")
+                    b64_img = base64.b64encode(img_bytes).decode('utf-8')
+                    content_payload.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_img}"}})
+                
+                await status_msg.edit_text("✅ 圖紙高清轉換完成，正在進行大腦視覺解析...")
+                
+            elif file_ext in ['.xlsx', '.xls']: 
+                extracted_content = pd.read_excel(current_file_path).to_markdown(index=False)
+                content_payload = f"【Excel 數據內容】：\n{extracted_content}\n\n【老闆指令】：{update.message.caption or '請分析以上表格數據'}"
+                await status_msg.edit_text("✅ Excel 讀取完成。")
+            else: 
+                return await status_msg.edit_text("❌ 目前只支援 PDF 與 Excel 格式解析。")
+        except Exception as e: 
+            return await status_msg.edit_text(f"❌ 解析失敗：{str(e)}")
         finally:
             if os.path.exists(current_file_path): os.remove(current_file_path)
+            
     else:
         content_payload = update.message.text or ""
 
