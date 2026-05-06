@@ -106,33 +106,33 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await (await doc.get_file()).download_to_drive(current_file_path)
         try:
             if file_ext == '.pdf':
-                # 🌟 核心升級：視覺化 PDF 解析 (針對工程圖則)
                 doc_fitz = fitz.open(current_file_path)
                 content_payload = [{"type": "text", "text": update.message.caption or '請以專業 QS 及鋼筋拆圖員的角度，詳細分析這份工程圖紙/文件。提取當中的尺寸、鋼筋資訊或表格數據。'}]
-                
-                # 限制最多處理前 5 頁，避免 API 超載及節省 Token
                 max_pages = min(5, len(doc_fitz))
                 await status_msg.edit_text(f"📐 正在將圖紙 (共 {max_pages} 頁) 轉換為高清視覺矩陣...")
-                
                 for page_num in range(max_pages):
                     page = doc_fitz[page_num]
-                    # 使用 2.0x 矩陣放大解析度，確保 CAD 細節/尺寸字體清晰可見
                     zoom_matrix = fitz.Matrix(2.0, 2.0)
                     pix = page.get_pixmap(matrix=zoom_matrix)
                     img_bytes = pix.tobytes("jpeg")
                     b64_img = base64.b64encode(img_bytes).decode('utf-8')
                     content_payload.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_img}"}})
-                
                 await status_msg.edit_text("✅ 圖紙高清轉換完成，正在進行大腦視覺解析...")
                 
-            elif file_ext in ['.xlsx', '.xls']: 
+            # 🌟 核心修改：解鎖 .xlsm 同 .xltm 等巨集格式
+            elif file_ext in ['.xlsx', '.xls', '.xlsm', '.xltm']: 
                 extracted_content = pd.read_excel(current_file_path).to_markdown(index=False)
                 content_payload = f"【Excel 數據內容】：\n{extracted_content}\n\n【老闆指令】：{update.message.caption or '請分析以上表格數據'}"
-                await status_msg.edit_text("✅ Excel 讀取完成。")
+                await status_msg.edit_text("✅ Excel/BBS 表格讀取完成。")
+                
+            # 🌟 新增：溫柔拒絕 ZIP 檔，教老闆正確做法
+            elif file_ext == '.zip':
+                return await status_msg.edit_text("❌ 系統安全限制：不支援直接解壓 .zip 檔案。請老闆喺電腦解壓後，將 PDF 或 Excel 直接掟畀我。")
+                
             else: 
-                return await status_msg.edit_text("❌ 目前只支援 PDF 與 Excel 格式解析。")
+                return await status_msg.edit_text(f"❌ 目前只支援 PDF 與 Excel 格式解析。未支援此格式：{file_ext}")
         except Exception as e: 
-            return await status_msg.edit_text(f"❌ 解析失敗：{str(e)}")
+            return await status_msg.edit_text(f"❌ 解析失敗（若是 Excel 請確保無密碼保護）：{str(e)}")
         finally:
             if os.path.exists(current_file_path): os.remove(current_file_path)
             
@@ -152,7 +152,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     local_time = datetime.datetime.now(ZoneInfo(TIMEZONE_STR))
     
     skills_desc = "\n".join([f"🔸 {t['function']['name']}: {t['function']['description']}" for t in GET_TOOLS_LIST])
-    skills_prompt = f"\n\n【🧠 你的自我認知 (已裝載技能)】：\n你目前已經成功掛載了以下 Python 實體工具：\n{skills_desc}\n\n🚨 警告：當老闆問你會做什麼，或者問你需要升級什麼時，你必須精準基於以上清單回答。絕對禁止虛構你沒有的技能（例如自動點擊屏幕、操作電腦軟件等）！"
+    skills_prompt = f"\n\n【🧠 你的自我認知 (已裝載技能)】：\n你目前已經成功掛載了以下 Python 實體工具：\n{skills_desc}\n\n🚨 警告：當老闆問你會做什麼，或者問你需要升級什麼時，你必須精準基於以上清單回答。絕對禁止虛構你沒有的技能！"
     
     dynamic_prompt = SYSTEM_PROMPT + f"\n\n現在時間：{local_time.strftime('%Y-%m-%d %H:%M')}。" + exp_manager.get_all_experiences_formatted() + skills_prompt
     
@@ -286,7 +286,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         final_reply = re.sub(r'https?://[^\s]+\.mp3', '', final_reply, flags=re.IGNORECASE)
 
     if final_reply is None or str(final_reply).strip() == "":
-        final_reply = "⚠️ [系統攔截] 報告老闆，大腦回傳了空白內容！\n這通常是因為問題（例如「繞過反爬」）觸發了 AI 供應商的安全審查機制（Safety Filters），被判定為敏感操作而強制消音。你可以查看 agent.log 了解 API 的原始回傳。"
+        final_reply = "⚠️ [系統攔截] 報告老闆，大腦回傳了空白內容！\n這通常是因為問題觸發了 AI 供應商的安全審查機制（Safety Filters）。"
         
     await update.message.reply_text(final_reply)
 
