@@ -63,6 +63,10 @@ HTML_TEMPLATE = """
         .model-tag { background: white; border: 1px solid #ccc; padding: 8px 14px; border-radius: 20px; font-size: 14px; cursor: pointer; color: #333; transition: 0.2s; font-family: monospace; }
         .model-tag:hover { background: #e8f0fe; border-color: #1a73e8; color: #1a73e8; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
         
+        /* 🌟 新增：Grok 專屬樣式 */
+        .model-tag.grok { border-color: #000; font-weight: bold; }
+        .model-tag.grok:hover { background: #000; color: #fff; box-shadow: 0 2px 5px rgba(0,0,0,0.3); }
+
         /* 表單元素 */
         textarea { width: 100%; height: 300px; font-family: 'Courier New', Courier, monospace; font-size: 14px; padding: 15px; border: 1px solid #ccc; border-radius: 8px; box-sizing: border-box; }
         input[type="password"], input[type="text"] { width: 100%; padding: 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; margin-bottom: 15px; }
@@ -135,6 +139,8 @@ HTML_TEMPLATE = """
                         <span class="model-tag" onclick="replaceModel(this, 'gemini-2.5-pro')">gemini-2.5-pro</span>
                         <span class="model-tag" onclick="replaceModel(this, 'gemini-2.5-flash')">gemini-2.5-flash</span>
                         <span class="model-tag" onclick="replaceModel(this, 'gemini-2.5-flash-lite')">gemini-2.5-flash-lite</span>
+                        <!-- 🌟 新增：Grok 一鍵切換按鈕 -->
+                        <span class="model-tag grok" onclick="replaceModel(this, 'grok-4.20-reasoning')">grok-4.20-reasoning</span>
                     </div>
                 </div>
 
@@ -175,9 +181,10 @@ HTML_TEMPLATE = """
             
             setTimeout(() => {
                 buttonElem.innerText = originalText;
+                // 🌟 新增：還原正確樣式，判斷係咪 Grok
                 buttonElem.style.background = 'white';
-                buttonElem.style.color = '#333';
-                buttonElem.style.borderColor = '#ccc';
+                buttonElem.style.color = buttonElem.classList.contains('grok') ? '#000' : '#333';
+                buttonElem.style.borderColor = buttonElem.classList.contains('grok') ? '#000' : '#ccc';
             }, 1500);
         }
 
