@@ -57,8 +57,14 @@ HTML_TEMPLATE = """
         .close-btn { position: absolute; right: 20px; top: 15px; font-size: 28px; font-weight: bold; color: #aaa; cursor: pointer; }
         .close-btn:hover { color: black; }
         
+        /* 模型切換標籤樣式 */
+        .model-selector { margin-bottom: 15px; background: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0; }
+        .model-tags { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+        .model-tag { background: white; border: 1px solid #ccc; padding: 8px 14px; border-radius: 20px; font-size: 14px; cursor: pointer; color: #333; transition: 0.2s; font-family: monospace; }
+        .model-tag:hover { background: #e8f0fe; border-color: #1a73e8; color: #1a73e8; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        
         /* 表單元素 */
-        textarea { width: 100%; height: 350px; font-family: 'Courier New', Courier, monospace; font-size: 14px; padding: 15px; border: 1px solid #ccc; border-radius: 8px; box-sizing: border-box; }
+        textarea { width: 100%; height: 300px; font-family: 'Courier New', Courier, monospace; font-size: 14px; padding: 15px; border: 1px solid #ccc; border-radius: 8px; box-sizing: border-box; }
         input[type="password"], input[type="text"] { width: 100%; padding: 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; margin-bottom: 15px; }
         .btn-save { background-color: #34a853; color: white; padding: 12px; width: 100%; border: none; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 15px; }
         .btn-restart { background-color: #ea4335; color: white; padding: 12px; width: 100%; border: none; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 15px; }
@@ -117,7 +123,22 @@ HTML_TEMPLATE = """
             <h1>⚙️ Configuration Panel</h1>
             <form method="POST" action="/save">
                 <h3>📝 編輯 .env 設定檔：</h3>
-                <textarea name="env_content">{{ env_content }}</textarea>
+                
+                <!-- 新增：快速模型切換視窗 -->
+                <div class="model-selector">
+                    <strong style="color: #444; font-size: 15px;">✨ 快速切換模型 (點擊自動替換下方文字)：</strong>
+                    <div class="model-tags">
+                        <span class="model-tag" onclick="replaceModel(this, 'gemini-3.1-pro-preview')">gemini-3.1-pro-preview</span>
+                        <span class="model-tag" onclick="replaceModel(this, 'gemini-3.1-flash-lite-preview')">gemini-3.1-flash-lite-preview</span>
+                        <span class="model-tag" onclick="replaceModel(this, 'gemini-3-pro-preview')">gemini-3-pro-preview</span>
+                        <span class="model-tag" onclick="replaceModel(this, 'gemini-3-flash-preview')">gemini-3-flash-preview</span>
+                        <span class="model-tag" onclick="replaceModel(this, 'gemini-2.5-pro')">gemini-2.5-pro</span>
+                        <span class="model-tag" onclick="replaceModel(this, 'gemini-2.5-flash')">gemini-2.5-flash</span>
+                        <span class="model-tag" onclick="replaceModel(this, 'gemini-2.5-flash-lite')">gemini-2.5-flash-lite</span>
+                    </div>
+                </div>
+
+                <textarea name="env_content" id="envTextarea">{{ env_content }}</textarea>
                 <button type="submit" class="btn-save">💾 儲存並覆蓋設定</button>
             </form>
             <hr style="margin: 30px 0; border: 0; border-top: 1px solid #eee;">
@@ -133,6 +154,33 @@ HTML_TEMPLATE = """
     </div>
 
     <script>
+        // 替換模型邏輯
+        function replaceModel(buttonElem, modelName) {
+            const textarea = document.getElementById('envTextarea');
+            let content = textarea.value;
+            // 尋找並替換 MODEL_NAME=... 這一行
+            const regex = /^MODEL_NAME=.*$/m;
+            if (regex.test(content)) {
+                textarea.value = content.replace(regex, `MODEL_NAME=${modelName}`);
+            } else {
+                textarea.value = `MODEL_NAME=${modelName}\n` + content;
+            }
+            
+            // 視覺回饋：變色加打勾
+            const originalText = buttonElem.innerText;
+            buttonElem.innerText = '✅ 已切換';
+            buttonElem.style.background = '#e8f0fe';
+            buttonElem.style.color = '#1a73e8';
+            buttonElem.style.borderColor = '#1a73e8';
+            
+            setTimeout(() => {
+                buttonElem.innerText = originalText;
+                buttonElem.style.background = 'white';
+                buttonElem.style.color = '#333';
+                buttonElem.style.borderColor = '#ccc';
+            }, 1500);
+        }
+
         async function sendMessage() {
             const inputField = document.getElementById('userInput');
             const chatBox = document.getElementById('chatBox');
