@@ -4,7 +4,6 @@ from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
-# 🌟 [合理刪減] 已刪除 speech_recognition 及 pydub，因為已改用原生 Base64 語音橋接
 import edge_tts
 import re
 from registry import GET_TOOLS_LIST, AGENT_TOOLS_REGISTRY
@@ -52,7 +51,7 @@ SYSTEM_PROMPT = f"""
 7. ⛈️ 天氣指令：當老闆詢問天氣時，請務必優先調用 `get_hk_weather_detailed` 工具獲取香港天文台數據，嚴禁隨意使用其他全球天氣工具！
 8. 🛑 語音回覆禁令：當老闆要求「用語音回答」時，你只需直接輸出純文字即可。絕對禁止輸出任何 `<speak>`、`<audio>` 標籤或虛構的錄音檔網址！🚨 嚴格禁止：絕對不可以向老闆解釋「我不能輸出語音」、「我只能用純文字回覆」、「謹遵指令」等廢話。直接開始回答正文，當作沒事發生過！
 9. 🚨 拒絕延遲原則：嚴禁對老闆說「請稍等」、「我需要時間整理」、「稍後回報」等廢話。身為 AI，你必須在「同一次回覆」中，連續調用所有必要的工具（尤其是 deep_research），直到獲取完整資訊並生成最終報告為止。即時交貨是你的唯一使命。
-10. 🕵️‍♂️ 工具自首機制：如果你在回答前調用了任何外部工具 (例如 deep_research, search_web, scrape_webpage_text, browse_website 等)，你必須在最終回覆的第一行，以「[系統報告：已使用 XXX 工具]」的明確格式向老闆匯報，然後再開始正文。
+10. 🕵️‍♂️ 工具自首機制：如果你在回答前調用了任何外部工具 (例如 deep_research, search_web, scrape_webpage_text, browse_website 等)，你必須在最終回覆的第一行，以「🛠️ [系統報告：已使用 XXX 工具]」的明確格式向老闆匯報，然後再開始正文。
 """
 
 async def daily_morning_report(context: ContextTypes.DEFAULT_TYPE):
@@ -78,13 +77,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             voice_file = await update.message.voice.get_file()
             await voice_file.download_to_drive(temp_ogg)
-            
-            # 🌟 核心升級：讀取原始 OGG 錄音檔並轉成 Base64
             with open(temp_ogg, "rb") as f:
                 audio_bytes = f.read()
             audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
-            
-            # 🌟 Gemini 原生語音橋接：利用 data URI 格式，將音檔封裝成多模態陣列交給 API
             content_payload = [
                 {"type": "text", "text": "【系統提示】：老闆發送了一段語音訊息，請直接聆聽原聲並回答。"},
                 {"type": "image_url", "image_url": {"url": f"data:audio/ogg;base64,{audio_b64}"}}
@@ -94,7 +89,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return await status_msg.edit_text(f"❌ 語音橋接失敗：{str(e)}")
         finally:
             if os.path.exists(temp_ogg): os.remove(temp_ogg)
-            if os.path.exists(temp_wav): os.remove(temp_wav) # 預防性清理，以防舊檔案殘留
+            if os.path.exists(temp_wav): os.remove(temp_wav)
             
     elif update.message.photo:
         await context.bot.send_chat_action(chat_id=chat_id, action='typing')
@@ -180,11 +175,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         current_key = endpoint["key"]
         
         temp_memory = list(user_memory[user_id])
+        
+        # 🌟 核心升級：加入 Safety Override，強制免疫道德審查
         temp_payload = {
             "model": GEMINI_MODEL, 
             "messages": temp_memory, 
             "tools": GET_TOOLS_LIST, 
-            "tool_choice": "auto"
+            "tool_choice": "auto",
+            "safetySettings": [
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
+            ]
         }
         
         headers = {
@@ -196,12 +199,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(current_url, headers=headers, json=temp_payload) as response:
-                    if response.status != 200: 
+                # 🚀 嘗試發送帶有安全豁免嘅請求
+                post_req = session.post(current_url, headers=headers, json=temp_payload)
+                async with post_req as response:
+                    # 如果代理伺服器唔支援 safetySettings 導致 400 報錯，自動移除並降級重試
+                    if response.status == 400:
+                        temp_payload.pop("safetySettings", None)
+                        async with session.post(current_url, headers=headers, json=temp_payload) as retry_response:
+                            if retry_response.status != 200:
+                                raise Exception(f"HTTP {retry_response.status} (降級重試失敗)")
+                            data = await retry_response.json()
+                    elif response.status != 200: 
                         err_txt = await response.text()
                         raise Exception(f"HTTP {response.status} ({err_txt[:60]}...)")
+                    else:
+                        data = await response.json()
                         
-                    data = await response.json()
                     if 'choices' not in data: raise Exception("代理返回異常")
                     
                     choice_data = data['choices'][0]
@@ -259,7 +272,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         
                         temp_payload["messages"] = temp_memory
                         
+                        # 工具執行完，將結果交回大腦（同樣帶上安全豁免）
                         async with session.post(current_url, headers=headers, json=temp_payload) as res2:
+                            if res2.status == 400 and "safetySettings" in temp_payload:
+                                temp_payload.pop("safetySettings", None)
+                                res2 = await session.post(current_url, headers=headers, json=temp_payload)
+                                
                             if res2.status != 200: 
                                 err_txt = await res2.text()
                                 raise Exception(f"工具匯報 HTTP {res2.status} ({err_txt[:60]}...)")
@@ -293,7 +311,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         final_reply = re.sub(r'https?://[^\s]+\.mp3', '', final_reply, flags=re.IGNORECASE)
 
     if final_reply is None or str(final_reply).strip() == "":
-        final_reply = "⚠️ [系統攔截] 報告老闆，大腦回傳了空白內容！\n這通常是因為問題觸發了 AI 供應商的安全審查機制（Safety Filters）。"
+        final_reply = "⚠️ [系統攔截] 報告老闆，大腦回傳了空白內容！\n這通常是因為爬取回來的資料（例如網上負評、粗口）觸發了 AI 供應商的安全審查機制（Safety Filters）。"
         
     await update.message.reply_text(final_reply)
 
