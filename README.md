@@ -62,7 +62,7 @@ MODEL_NAME=gemini-2.5-flash
 5. 背景常駐運行 (標準指令)
 建議使用 nohup 維持 24 小時運作。當更新代碼後，請執行以下組合指令：
 Bash
-git pull origin main && pkill -f bot.py && nohup python3 bot.py > agent.log 2>&1 &
+killall -9 python3 ; git fetch --all && git reset --hard origin/main ; nohup python3 bot.py > agent.log 2>&1 & nohup python3 web_admin.py > admin.log 2>&1 &
 
 👨‍💻 作者 (Author)
 HO - QS & Rebar Detailer based in Hong Kong
