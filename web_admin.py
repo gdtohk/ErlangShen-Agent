@@ -63,10 +63,6 @@ HTML_TEMPLATE = """
         .model-tag { background: white; border: 1px solid #ccc; padding: 8px 14px; border-radius: 20px; font-size: 14px; cursor: pointer; color: #333; transition: 0.2s; font-family: monospace; }
         .model-tag:hover { background: #e8f0fe; border-color: #1a73e8; color: #1a73e8; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
         
-        /* 🌟 新增：Grok 專屬樣式 */
-        .model-tag.grok { border-color: #000; font-weight: bold; }
-        .model-tag.grok:hover { background: #000; color: #fff; box-shadow: 0 2px 5px rgba(0,0,0,0.3); }
-
         /* 表單元素 */
         textarea { width: 100%; height: 300px; font-family: 'Courier New', Courier, monospace; font-size: 14px; padding: 15px; border: 1px solid #ccc; border-radius: 8px; box-sizing: border-box; }
         input[type="password"], input[type="text"] { width: 100%; padding: 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; margin-bottom: 15px; }
@@ -89,9 +85,9 @@ HTML_TEMPLATE = """
 
     {% if not logged_in %}
     <div class="login-container">
-        <h1>ErlangShen Control Center</h1>
+        <h1>⚙️ 二郎神 控制中心</h1>
         <form method="POST" action="/login">
-            <h3>系統已鎖定，請登入：</h3>
+            <h3>🔒 系統已鎖定，請登入：</h3>
             <input type="password" name="pwd" id="pwdInput" placeholder="請輸入管理員密碼..." required autofocus>
             <div style="text-align: right; margin-top: -10px; margin-bottom: 15px;">
                 <label style="font-size: 14px; color: #5f6368; cursor: pointer;">
@@ -126,7 +122,7 @@ HTML_TEMPLATE = """
             <span class="close-btn" onclick="document.getElementById('settingsModal').style.display='none'">&times;</span>
             <h1>⚙️ Configuration Panel</h1>
             <form method="POST" action="/save">
-                <h3>編輯 .env 設定檔：</h3>
+                <h3>📝 編輯 .env 設定檔：</h3>
                 
                 <!-- 新增：快速模型切換視窗 -->
                 <div class="model-selector">
@@ -139,8 +135,6 @@ HTML_TEMPLATE = """
                         <span class="model-tag" onclick="replaceModel(this, 'gemini-2.5-pro')">gemini-2.5-pro</span>
                         <span class="model-tag" onclick="replaceModel(this, 'gemini-2.5-flash')">gemini-2.5-flash</span>
                         <span class="model-tag" onclick="replaceModel(this, 'gemini-2.5-flash-lite')">gemini-2.5-flash-lite</span>
-                        <!-- 🌟 新增：Grok 一鍵切換按鈕 -->
-                        <span class="model-tag grok" onclick="replaceModel(this, 'grok-4.20-reasoning')">grok-4.20-reasoning</span>
                     </div>
                 </div>
 
@@ -181,10 +175,9 @@ HTML_TEMPLATE = """
             
             setTimeout(() => {
                 buttonElem.innerText = originalText;
-                // 🌟 新增：還原正確樣式，判斷係咪 Grok
                 buttonElem.style.background = 'white';
-                buttonElem.style.color = buttonElem.classList.contains('grok') ? '#000' : '#333';
-                buttonElem.style.borderColor = buttonElem.classList.contains('grok') ? '#000' : '#ccc';
+                buttonElem.style.color = '#333';
+                buttonElem.style.borderColor = '#ccc';
             }, 1500);
         }
 
