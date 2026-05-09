@@ -206,7 +206,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             headers["x-goog-api-key"] = current_key
 
         try:
-            api_timeout = aiohttp.ClientTimeout(total=90)
+            api_timeout = aiohttp.ClientTimeout(total=180)
             async with aiohttp.ClientSession(timeout=api_timeout) as session:
                 post_req = session.post(current_url, headers=headers, json=temp_payload)
                 async with post_req as response:
@@ -304,7 +304,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         except asyncio.TimeoutError:
             node_name = "官方節點" if "googleapis.com" in current_url else "CPAMC節點"
-            error_msg_list.append(f"[{node_name}] 失敗: 連線超時 (超過90秒)。代理伺服器無法消化過大數據。")
+            error_msg_list.append(f"[{node_name}] 失敗: 連線超時 (超過180秒)。代理伺服器無法消化過大數據。")
             continue
         except Exception as e:
             node_name = "官方節點" if "googleapis.com" in current_url else "CPAMC節點"
