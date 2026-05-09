@@ -2,10 +2,12 @@ import os
 import pandas as pd
 import fitz
 import re
+import base64
+import json
 
-async def manage_my_drive(chat_id, context, path: str = "") -> str:
+async def manage_my_drive(chat_id, context, path: str = "", mode: str = "text") -> str:
     """
-    瀏覽或讀取 my_drive 中的文件。
+    瀏覽或讀取 my_drive 中的文件。支援純文字與視覺雙模式。
     """
     base_path = "/home/ubuntu/ErlangShen-Agent/my_drive"
     # 過濾並確保路徑安全，處理繁簡體及空白
@@ -33,28 +35,47 @@ async def manage_my_drive(chat_id, context, path: str = "") -> str:
             if ext == '.pdf':
                 doc = fitz.open(full_path)
                 total_pages = len(doc)
-                text = f"【PDF 文件：{safe_path} (共 {total_pages} 頁)】\n"
                 
-                # 優化：只提取前 5 頁，且總字數限制在 3500 字內，避免觸發 AI 安全審查
-                raw_content = ""
-                for i in range(min(5, total_pages)):  
-                    raw_content += doc[i].get_text("text")
-                
-                # 清理多餘換行及特殊空白字元
-                clean_content = re.sub(r'\n+', '\n', raw_content)
-                clean_content = re.sub(r' +', ' ', clean_content)
-                
-                text += clean_content[:3500] 
-                if len(raw_content) > 3500:
-                    text += "\n\n...(內容過長，已截取前段供分析)..."
-                return text
+                # 🌟 新增：視覺分析模式 (將圖紙變相片送給大腦)
+                if mode == "visual":
+                    text = f"【👁️ 視覺模式啟動：{safe_path} (共 {total_pages} 頁)】\n"
+                    images_b64 = []
+                    # 為防止 API 載荷過大，視覺模式暫時限制讀取前 3 頁
+                    max_pages = min(3, total_pages) 
+                    for i in range(max_pages):  
+                        page = doc[i]
+                        zoom_matrix = fitz.Matrix(1.5, 1.5) # 智能降頻 1.5倍
+                        pix = page.get_pixmap(matrix=zoom_matrix)
+                        img_bytes = pix.tobytes("jpeg")
+                        b64_img = base64.b64encode(img_bytes).decode('utf-8')
+                        images_b64.append(b64_img)
+                        
+                    return json.dumps({
+                        "type": "pdf_with_images",
+                        "text": text + "已在底層將圖紙渲染為高清圖片，並成功橋接至視覺大腦。",
+                        "images_base64": images_b64
+                    })
+                    
+                # 原有的純文字極速模式
+                else:
+                    text = f"【📝 文字模式 PDF：{safe_path} (共 {total_pages} 頁)】\n"
+                    raw_content = ""
+                    for i in range(min(5, total_pages)):  
+                        raw_content += doc[i].get_text("text")
+                    
+                    clean_content = re.sub(r'\n+', '\n', raw_content)
+                    clean_content = re.sub(r' +', ' ', clean_content)
+                    
+                    text += clean_content[:3500] 
+                    if len(raw_content) > 3500:
+                        text += "\n\n...(內容過長，已截取前段供分析)..."
+                    return text
                 
             elif ext in ['.xlsx', '.xls', '.csv']:
                 if ext == '.csv':
                     df = pd.read_csv(full_path)
                 else:
                     df = pd.read_excel(full_path)
-                # 表格同樣截取前 50 行
                 return f"【表格文件：{safe_path}】\n" + df.head(50).to_markdown(index=False)[:4000]
                 
             elif ext in ['.txt', '.md', '.log']:
