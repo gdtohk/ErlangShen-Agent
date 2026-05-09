@@ -267,10 +267,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             is_ss = False
                             try:
                                 rj = json.loads(str(res))
-                                if isinstance(rj, dict) and rj.get("type") == "webpage_with_screenshot":
-                                    temp_memory.append({"role": "tool", "tool_call_id": tc['id'], "name": fn, "content": f"文字：{rj.get('text', '')}"})
-                                    temp_memory.append({"role": "user", "content": [{"type": "text", "text": "請參考網頁截圖。"}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{rj.get('image_base64', '')}"}}]})
-                                    is_ss = True
+                                if isinstance(rj, dict):
+                                    if rj.get("type") == "webpage_with_screenshot":
+                                        temp_memory.append({"role": "tool", "tool_call_id": tc['id'], "name": fn, "content": f"文字：{rj.get('text', '')}"})
+                                        temp_memory.append({"role": "user", "content": [{"type": "text", "text": "請參考網頁截圖。"}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{rj.get('image_base64', '')}"}}]})
+                                        is_ss = True
+                                    # 🌟 新增：攔截底層傳來的內部圖像轉換要求 (視覺模式)
+                                    elif rj.get("type") == "pdf_with_images":
+                                        temp_memory.append({"role": "tool", "tool_call_id": tc['id'], "name": fn, "content": rj.get("text", "成功擷取影像")})
+                                        
+                                        img_contents = [{"type": "text", "text": "【系統注入】：以上是從雲端硬碟提取的圖紙影像，請以專業 QS 角度仔細進行視覺分析、解讀當中的表格及細節。"}]
+                                        for b64_img in rj.get("images_base64", []):
+                                            img_contents.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_img}"}})
+                                            
+                                        temp_memory.append({"role": "user", "content": img_contents})
+                                        is_ss = True
                             except: pass
 
                             if not is_ss:
