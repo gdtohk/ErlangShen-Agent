@@ -7,6 +7,7 @@ from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
 import edge_tts
 import re
+from imap_tools import MailBox, AND  # 🌟 新增：IMAP 收信神器
 from registry import GET_TOOLS_LIST, AGENT_TOOLS_REGISTRY
 from experience_manager import exp_manager
 
@@ -60,6 +61,59 @@ async def daily_morning_report(context: ContextTypes.DEFAULT_TYPE):
     local_time = datetime.datetime.now(ZoneInfo(TIMEZONE_STR))
     date_str = local_time.strftime("%Y年%m月%d日")
     await context.bot.send_message(chat_id=chat_id, text=f"🌅 早晨{OWNER_NAME}！今日係 {date_str}。祝你今日工作順利！")
+
+# ================= 🌟 新增：自動收信與附件下載模組 =================
+async def check_new_emails(context: ContextTypes.DEFAULT_TYPE):
+    email_user = os.getenv("EMAIL_ACCOUNT")
+    email_pass = os.getenv("EMAIL_APP_PASSWORD")
+    chat_id = ALLOWED_USER_ID
+    
+    if not email_user or not email_pass: 
+        return
+
+    def fetch_unseen_emails():
+        new_msgs = []
+        try:
+            with MailBox('imap.gmail.com').login(email_user, email_pass) as mailbox:
+                for msg in mailbox.fetch(AND(seen=False)):
+                    saved_attachments = []
+                    # 處理附件自動下載
+                    if msg.attachments:
+                        save_dir = "/home/ubuntu/ErlangShen-Agent/my_drive/Email_Attachments"
+                        os.makedirs(save_dir, exist_ok=True)
+                        for att in msg.attachments:
+                            if att.filename:
+                                filepath = os.path.join(save_dir, att.filename)
+                                with open(filepath, 'wb') as f:
+                                    f.write(att.payload)
+                                saved_attachments.append(att.filename)
+                                
+                    new_msgs.append({
+                        "sender": msg.from_,
+                        "subject": msg.subject,
+                        "text": msg.text or msg.html,
+                        "attachments": saved_attachments
+                    })
+        except Exception as e:
+            logging.error(f"IMAP 收信錯誤: {e}")
+        return new_msgs
+
+    # 在獨立線程執行 IMAP 操作，防止阻塞大腦
+    new_emails = await asyncio.to_thread(fetch_unseen_emails)
+    
+    for em in new_emails:
+        preview = em['text'][:300].strip() if em['text'] else "無文字內容"
+        preview = preview.replace('\n', ' ')
+        
+        msg_text = f"📧 **【老闆，有新 Email！】**\n\n👤 **寄件人:** `{em['sender']}`\n📌 **標題:** `{em['subject']}`\n"
+        
+        if em['attachments']:
+            msg_text += f"📎 **附件:** {', '.join(em['attachments'])}\n*(已自動存入 my_drive/Email_Attachments)*\n\n"
+            
+        msg_text += f"📝 **內容預覽:**\n{preview}..."
+        
+        await context.bot.send_message(chat_id=chat_id, text=msg_text)
+# =================================================================
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message: return
@@ -272,7 +326,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                         temp_memory.append({"role": "tool", "tool_call_id": tc['id'], "name": fn, "content": f"文字：{rj.get('text', '')}"})
                                         temp_memory.append({"role": "user", "content": [{"type": "text", "text": "請參考網頁截圖。"}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{rj.get('image_base64', '')}"}}]})
                                         is_ss = True
-                                    # 🌟 新增：攔截底層傳來的內部圖像轉換要求 (視覺模式)
                                     elif rj.get("type") == "pdf_with_images":
                                         temp_memory.append({"role": "tool", "tool_call_id": tc['id'], "name": fn, "content": rj.get("text", "成功擷取影像")})
                                         
@@ -369,6 +422,9 @@ def main():
     
     t = datetime.time(hour=5, minute=30, tzinfo=ZoneInfo(TIMEZONE_STR))
     app.job_queue.run_daily(daily_morning_report, t)
+    
+    # 🌟 新增：啟動自動巡邏收信 (每 5 分鐘執行一次，程式啟動 10 秒後首次執行)
+    app.job_queue.run_repeating(check_new_emails, interval=300, first=10)
     
     print(f"🚀 {BOT_NAME} 啟動成功！我已經喺 Telegram 等緊老闆你啦！")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
