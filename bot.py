@@ -1,13 +1,13 @@
 import random
 import os, json, base64, logging, aiohttp, datetime, pandas as pd, fitz
-import asyncio  # 🌟 用於處理超時防卡死
+import asyncio  
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
 import edge_tts
 import re
-from imap_tools import MailBox, AND  # 🌟 新增：IMAP 收信神器
+from imap_tools import MailBox, AND  
 from registry import GET_TOOLS_LIST, AGENT_TOOLS_REGISTRY
 from experience_manager import exp_manager
 
@@ -62,11 +62,14 @@ async def daily_morning_report(context: ContextTypes.DEFAULT_TYPE):
     date_str = local_time.strftime("%Y年%m月%d日")
     await context.bot.send_message(chat_id=chat_id, text=f"🌅 早晨{OWNER_NAME}！今日係 {date_str}。祝你今日工作順利！")
 
-# ================= 🌟 新增：自動收信與附件下載模組 =================
+# ================= 🌟 新增：自動收信、附件下載與 AI 解讀模組 =================
 async def check_new_emails(context: ContextTypes.DEFAULT_TYPE):
     email_user = os.getenv("EMAIL_ACCOUNT")
     email_pass = os.getenv("EMAIL_APP_PASSWORD")
     chat_id = ALLOWED_USER_ID
+    
+    if email_user: email_user = email_user.strip('"').strip("'")
+    if email_pass: email_pass = email_pass.strip('"').strip("'")
     
     if not email_user or not email_pass: 
         return
@@ -74,10 +77,9 @@ async def check_new_emails(context: ContextTypes.DEFAULT_TYPE):
     def fetch_unseen_emails():
         new_msgs = []
         try:
-            with MailBox('imap.gmail.com').login(email_user, email_pass) as mailbox:
+            with MailBox('imap.gmail.com', timeout=15).login(email_user, email_pass) as mailbox:
                 for msg in mailbox.fetch(AND(seen=False)):
                     saved_attachments = []
-                    # 處理附件自動下載
                     if msg.attachments:
                         save_dir = "/home/ubuntu/ErlangShen-Agent/my_drive/Email_Attachments"
                         os.makedirs(save_dir, exist_ok=True)
@@ -98,19 +100,56 @@ async def check_new_emails(context: ContextTypes.DEFAULT_TYPE):
             logging.error(f"IMAP 收信錯誤: {e}")
         return new_msgs
 
-    # 在獨立線程執行 IMAP 操作，防止阻塞大腦
     new_emails = await asyncio.to_thread(fetch_unseen_emails)
     
     for em in new_emails:
-        preview = em['text'][:300].strip() if em['text'] else "無文字內容"
-        preview = preview.replace('\n', ' ')
+        raw_text = em['text'][:4000] if em['text'] else "無內容"
+        ai_summary = "系統無法生成摘要。"
         
+        # 🌟 升級版：深度解讀 Prompt
+        if raw_text.strip() != "無內容" and API_ENDPOINTS:
+            try:
+                endpoint = random.choice(API_ENDPOINTS)
+                detailed_prompt = f"""你是一個專業的香港建築行業 QS (工料測量師) 及鋼筋工程助理。
+請仔細閱讀以下最新收到的電郵，並以條理分明的格式（分段或列點）提供「詳細解讀報告」。
+
+請確保分析並列出以下元素（如電郵中有提及）：
+1. 📌 **核心目的**：發件人想表達或要求什麼？
+2. 📐 **工程細節與數據**：任何提及的尺寸、圖則編號、石屎/鋼筋等級 (Grade)、位置 (Zone/Block)、重量等。
+3. ⚠️ **需跟進事項 / 期限**：有什麼需要老闆回覆或執行的行動？
+
+請用繁體中文回覆（可夾雜香港工程界常用英文術語），務求詳盡、專業且準確，不要遺漏重要細節。字數不限。
+
+寄件人：{em['sender']}
+標題：{em['subject']}
+內容：
+{raw_text}"""
+
+                payload = {
+                    "model": GEMINI_MODEL,
+                    "messages": [{"role": "user", "content": detailed_prompt}]
+                }
+                headers = {"Content-Type": "application/json", "Authorization": f"Bearer {endpoint['key']}"}
+                if "googleapis.com" in endpoint['url']: 
+                    headers["x-goog-api-key"] = endpoint['key']
+                
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(endpoint['url'], headers=headers, json=payload, timeout=25) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            if 'choices' in data:
+                                choice_data = data['choices'][0]
+                                if isinstance(choice_data, list): choice_data = choice_data[0]
+                                m_data = choice_data.get('message', {})
+                                if isinstance(m_data, list): m_data = m_data[0]
+                                ai_summary = m_data.get('content', "大腦回傳空白。")
+            except Exception as e:
+                ai_summary = f"大腦解讀失敗 ({str(e)})"
+
         msg_text = f"📧 **【老闆，有新 Email！】**\n\n👤 **寄件人:** `{em['sender']}`\n📌 **標題:** `{em['subject']}`\n"
-        
         if em['attachments']:
             msg_text += f"📎 **附件:** {', '.join(em['attachments'])}\n*(已自動存入 my_drive/Email_Attachments)*\n\n"
-            
-        msg_text += f"📝 **內容預覽:**\n{preview}..."
+        msg_text += f"🤖 **二郎神深度解讀報告:**\n{ai_summary}"
         
         await context.bot.send_message(chat_id=chat_id, text=msg_text)
 # =================================================================
@@ -198,11 +237,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     force_voice = False
     
-    # 🌟 核心修復：語音指令「瞞天過海」攔截機制
     if isinstance(content_payload, str):
         if any(keyword in content_payload.lower() for keyword in ["語音", "语音", "voice"]):
             force_voice = True
-            # 將「語音」等字眼從發給 AI 的 Prompt 中刪除，防止 AI 嘗試生成錄音檔
             content_payload = re.sub(r'(用)?(語音|语音|voice)(回答|回覆|讀出)?', '', content_payload, flags=re.IGNORECASE).strip()
             if not content_payload: content_payload = "請詳細解答。"
             
@@ -392,10 +429,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_voice or force_voice:
         if not final_reply.startswith("⚠️ [系統攔截]"):
             try:
-                # 🌟 核心修復：強化語音淨化器 (清除 Markdown 及系統字眼，防止哽死發聲引擎)
-                tts_text = re.sub(r'\[系統報告：[^\]]+\]', '', final_reply) # 刪除工具報告字眼
-                tts_text = re.sub(r'[*#_`~]', '', tts_text) # 清除 Markdown 特殊符號
-                tts_text = re.sub(r'https?://[^\s]+', '網址連結', tts_text) # 將 URL 讀成「網址連結」
+                tts_text = re.sub(r'\[系統報告：[^\]]+\]', '', final_reply) 
+                tts_text = re.sub(r'[*#_`~]', '', tts_text) 
+                tts_text = re.sub(r'https?://[^\s]+', '網址連結', tts_text) 
                 tts_text = tts_text.strip()
                 
                 if tts_text:
@@ -423,7 +459,6 @@ def main():
     t = datetime.time(hour=5, minute=30, tzinfo=ZoneInfo(TIMEZONE_STR))
     app.job_queue.run_daily(daily_morning_report, t)
     
-    # 🌟 新增：啟動自動巡邏收信 (每 5 分鐘執行一次，程式啟動 10 秒後首次執行)
     app.job_queue.run_repeating(check_new_emails, interval=300, first=10)
     
     print(f"🚀 {BOT_NAME} 啟動成功！我已經喺 Telegram 等緊老闆你啦！")
