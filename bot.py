@@ -105,48 +105,65 @@ async def check_new_emails(context: ContextTypes.DEFAULT_TYPE):
     for em in new_emails:
         raw_text = em['text'][:4000] if em['text'] else "無文字內容"
         ai_summary = "系統無法生成摘要。"
+        error_logs = []
         
         if raw_text.strip() != "無文字內容" and API_ENDPOINTS:
-            try:
-                endpoint = random.choice(API_ENDPOINTS)
-                # 🌟 提示大腦目前睇唔到圖，並加強錯誤處理
-                detailed_prompt = f"""你是一個專業的香港建築行業 QS 及鋼筋工程助理。
+            random.shuffle(API_ENDPOINTS)
+            success = False
+            
+            # 🌟 核心升級：實事求是解讀 Prompt
+            detailed_prompt = f"""你是老闆的專屬 AI 助理（同時具備香港建築 QS 及鋼筋工程專業知識）。
 請仔細閱讀以下最新收到的電郵，並提供「詳細解讀報告」。
 
+【🚨 核心分析原則 - 實事求是】：
+電郵講什麼就分析什麼，絕對不要強行將無關的內容（例如：廣告、科技新聞、日常通知、私人信件）與 QS 或鋼筋工程扯上關係！不需要硬加「對 QS 的啟示」之類的廢話。
+
+請根據電郵的【實際性質】進行解讀：
+- 如果是【一般電郵/新聞/廣告】：只需簡單精準地總結其核心訊息。
+- 如果是【工程相關電郵】：請發揮你的專業，詳細列出當中的工程細節（如尺寸、圖則編號、鋼筋/石屎 Grade、位置等），以及需要跟進的事項。
+
 ⚠️ 系統警告：你目前在「背景收信模式」，你只能閱讀文字，無法看見這封電郵的任何圖片或附件！
-如果老闆在信中要求你分析圖片或圖則，請你有禮貌地總結文字內容，並提醒老闆：「我目前睇唔到電郵嘅圖片附件，請老闆直接將圖片 Send 落 Telegram 畀我幫你拆圖！」
+如果老闆在信中要求你分析圖片或圖則，請你總結現有文字內容後，提醒老闆：「我目前睇唔到電郵嘅圖片附件，請老闆直接將圖片 Send 落 Telegram 畀我幫你拆圖！」
 
 寄件人：{em['sender']}
 標題：{em['subject']}
 內容：
 {raw_text}"""
 
-                payload = {
-                    "model": GEMINI_MODEL,
-                    "messages": [{"role": "user", "content": detailed_prompt}]
-                }
+            payload = {
+                "model": GEMINI_MODEL,
+                "messages": [{"role": "user", "content": detailed_prompt}]
+            }
+
+            for endpoint in API_ENDPOINTS:
                 headers = {"Content-Type": "application/json", "Authorization": f"Bearer {endpoint['key']}"}
                 if "googleapis.com" in endpoint['url']: 
                     headers["x-goog-api-key"] = endpoint['key']
                 
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(endpoint['url'], headers=headers, json=payload, timeout=25) as resp:
-                        if resp.status == 200:
-                            data = await resp.json()
-                            if 'choices' in data:
-                                choice_data = data['choices'][0]
-                                if isinstance(choice_data, list): choice_data = choice_data[0]
-                                m_data = choice_data.get('message', {})
-                                if isinstance(m_data, list): m_data = m_data[0]
-                                ai_summary = m_data.get('content', "大腦回傳空白。")
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post(endpoint['url'], headers=headers, json=payload, timeout=25) as resp:
+                            if resp.status == 200:
+                                data = await resp.json()
+                                if 'choices' in data:
+                                    choice_data = data['choices'][0]
+                                    if isinstance(choice_data, list): choice_data = choice_data[0]
+                                    m_data = choice_data.get('message', {})
+                                    if isinstance(m_data, list): m_data = m_data[0]
+                                    ai_summary = m_data.get('content', "大腦回傳空白。")
+                                    success = True
+                                    break 
+                                else:
+                                    error_logs.append("格式異常")
                             else:
-                                ai_summary = f"⚠️ API 回傳格式異常: {str(data)[:100]}"
-                        else:
-                            # 🌟 將 HTTP 錯誤代碼直接印出，方便 Debug！
-                            err_txt = await resp.text()
-                            ai_summary = f"⚠️ API 連線錯誤 (HTTP {resp.status}): {err_txt[:100]}"
-            except Exception as e:
-                ai_summary = f"⚠️ 大腦解讀失敗 ({str(e)})"
+                                err_txt = await resp.text()
+                                error_logs.append(f"HTTP {resp.status}")
+                except Exception as e:
+                    error_logs.append("連線超時")
+                    continue
+            
+            if not success:
+                ai_summary = f"⚠️ 所有大腦引擎連線失敗或額度耗盡。錯誤摘要: {', '.join(error_logs)}"
 
         msg_text = f"📧 **【老闆，有新 Email！】**\n\n👤 **寄件人:** `{em['sender']}`\n📌 **標題:** `{em['subject']}`\n"
         if em['attachments']:
