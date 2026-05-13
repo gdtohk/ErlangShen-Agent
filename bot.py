@@ -103,22 +103,18 @@ async def check_new_emails(context: ContextTypes.DEFAULT_TYPE):
     new_emails = await asyncio.to_thread(fetch_unseen_emails)
     
     for em in new_emails:
-        raw_text = em['text'][:4000] if em['text'] else "無內容"
+        raw_text = em['text'][:4000] if em['text'] else "無文字內容"
         ai_summary = "系統無法生成摘要。"
         
-        # 🌟 升級版：深度解讀 Prompt
-        if raw_text.strip() != "無內容" and API_ENDPOINTS:
+        if raw_text.strip() != "無文字內容" and API_ENDPOINTS:
             try:
                 endpoint = random.choice(API_ENDPOINTS)
-                detailed_prompt = f"""你是一個專業的香港建築行業 QS (工料測量師) 及鋼筋工程助理。
-請仔細閱讀以下最新收到的電郵，並以條理分明的格式（分段或列點）提供「詳細解讀報告」。
+                # 🌟 提示大腦目前睇唔到圖，並加強錯誤處理
+                detailed_prompt = f"""你是一個專業的香港建築行業 QS 及鋼筋工程助理。
+請仔細閱讀以下最新收到的電郵，並提供「詳細解讀報告」。
 
-請確保分析並列出以下元素（如電郵中有提及）：
-1. 📌 **核心目的**：發件人想表達或要求什麼？
-2. 📐 **工程細節與數據**：任何提及的尺寸、圖則編號、石屎/鋼筋等級 (Grade)、位置 (Zone/Block)、重量等。
-3. ⚠️ **需跟進事項 / 期限**：有什麼需要老闆回覆或執行的行動？
-
-請用繁體中文回覆（可夾雜香港工程界常用英文術語），務求詳盡、專業且準確，不要遺漏重要細節。字數不限。
+⚠️ 系統警告：你目前在「背景收信模式」，你只能閱讀文字，無法看見這封電郵的任何圖片或附件！
+如果老闆在信中要求你分析圖片或圖則，請你有禮貌地總結文字內容，並提醒老闆：「我目前睇唔到電郵嘅圖片附件，請老闆直接將圖片 Send 落 Telegram 畀我幫你拆圖！」
 
 寄件人：{em['sender']}
 標題：{em['subject']}
@@ -143,8 +139,14 @@ async def check_new_emails(context: ContextTypes.DEFAULT_TYPE):
                                 m_data = choice_data.get('message', {})
                                 if isinstance(m_data, list): m_data = m_data[0]
                                 ai_summary = m_data.get('content', "大腦回傳空白。")
+                            else:
+                                ai_summary = f"⚠️ API 回傳格式異常: {str(data)[:100]}"
+                        else:
+                            # 🌟 將 HTTP 錯誤代碼直接印出，方便 Debug！
+                            err_txt = await resp.text()
+                            ai_summary = f"⚠️ API 連線錯誤 (HTTP {resp.status}): {err_txt[:100]}"
             except Exception as e:
-                ai_summary = f"大腦解讀失敗 ({str(e)})"
+                ai_summary = f"⚠️ 大腦解讀失敗 ({str(e)})"
 
         msg_text = f"📧 **【老闆，有新 Email！】**\n\n👤 **寄件人:** `{em['sender']}`\n📌 **標題:** `{em['subject']}`\n"
         if em['attachments']:
