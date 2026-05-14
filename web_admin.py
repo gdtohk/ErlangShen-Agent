@@ -76,11 +76,22 @@ HTML_TEMPLATE = """
 <body>
     {% with messages = get_flashed_messages() %}
         {% if messages %}
-            <div style="position: absolute; top: 10px; width: 100%; z-index: 2000;">
+            <div id="flash-container" style="position: absolute; top: 10px; width: 100%; z-index: 2000;">
             {% for message in messages %}
                 <div class="alert" style="max-width: 600px; margin: auto; box-shadow: 0 4px 12px rgba(0,0,0,0.2);">{{ message }}</div>
             {% endfor %}
             </div>
+            <script>
+                // 🌟 新增：2秒後自動淡出並移除提示橫幅
+                setTimeout(function() {
+                    var flashEl = document.getElementById('flash-container');
+                    if (flashEl) {
+                        flashEl.style.transition = 'opacity 0.5s ease';
+                        flashEl.style.opacity = '0';
+                        setTimeout(() => flashEl.remove(), 500); // 動畫播完後移除元素
+                    }
+                }, 2000);
+            </script>
         {% endif %}
     {% endwith %}
 
