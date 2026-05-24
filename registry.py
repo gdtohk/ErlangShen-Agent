@@ -32,11 +32,9 @@ async def build_knowledge_from_drive(chat_id, context, **kwargs):
     """讀取掛載的 Google Drive 中的 Standard_Docs 資料夾，將裡面的 PDF 轉化為向量大腦記憶"""
     print("📚 [System] 收到構建知識庫指令，正在翻查 Google Drive...")
     
-    # 加入路徑「照妖鏡」，精準捕捉加載失敗原因及當前 Python 執行環境
     try:
         import sys
         from langchain_community.document_loaders import PyPDFLoader
-        # 🌟 [本次最新新增]：修復 LangChain 最新版本的依賴路徑，從舊版 langchain.text_splitter 更改為獨立的 langchain_text_splitters 模組
         from langchain_text_splitters import RecursiveCharacterTextSplitter
         from langchain_community.embeddings import HuggingFaceEmbeddings
         from langchain_community.vectorstores import Chroma
@@ -69,6 +67,43 @@ async def build_knowledge_from_drive(chat_id, context, **kwargs):
         return f"✅ 報告老闆！二郎神已成功閱讀並消化 Google Drive 內共 {len(pdf_files)} 份 PDF 規範文檔！超級大腦索引已同步更新完成！😎"
     except Exception as e:
         return f"❌ 構建知識庫時發生錯誤：{str(e)}"
+
+# ================= 🌟 [本次最新新增核心技能]：檢索超級大腦知識庫 =================
+# 說明：此函數會根據老闆的問題，從 ChromaDB 向量庫中精準搜尋最相關的工程規範條文
+async def search_knowledge_base(chat_id, context, query: str):
+    """當老闆詢問工程規範、標準、或特定技術細節時，從超級大腦知識庫中檢索答案"""
+    print(f"🧠 [System] 正在超級大腦中檢索：{query}")
+    try:
+        from langchain_community.embeddings import HuggingFaceEmbeddings
+        from langchain_community.vectorstores import Chroma
+        import os
+    except ImportError:
+        return "❌ 系統檢測到 RAG 模組缺失，無法進行檢索。"
+
+    DB_DIR = "./my_drive/Knowledge_Base_DB"
+    if not os.path.exists(DB_DIR):
+        return "⚠️ 知識庫尚未建立！請先放入 PDF 並執行 `build_knowledge_from_drive` 工具。"
+
+    try:
+        # 連接已經建好的 ChromaDB 大腦
+        embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+        vector_db = Chroma(persist_directory=DB_DIR, embedding_function=embeddings)
+        
+        # 進行相似度檢索，抽出最相關的 5 個段落
+        docs = vector_db.similarity_search(query, k=5)
+        
+        if not docs:
+            return f"🔍 喺知識庫入面搵唔到關於「{query}」嘅資料。可能規範無提及，或者 PDF 未包含此內容。"
+        
+        results = []
+        for i, doc in enumerate(docs):
+            source = doc.metadata.get('source', '未知來源').split('/')[-1]
+            page = doc.metadata.get('page', '未知')
+            results.append(f"📄 **來源**: {source} (第 {page} 頁)\n**內容節錄**: {doc.page_content}...\n")
+            
+        return f"✅ 成功從大腦提取相關規範！以下係最吻合嘅條文：\n\n" + "\n---\n".join(results)
+    except Exception as e:
+        return f"❌ 檢索知識庫時發生錯誤：{str(e)}"
 
 # ================= 全球天氣查詢 =================
 async def get_global_weather(chat_id, context, location):
@@ -187,8 +222,9 @@ AGENT_TOOLS_REGISTRY = {
         "path": {"type": "string", "description": "文件或資料夾的相對路徑。留空代表根目錄。例如：'Kwu Tung North' 或 '落标扎铁要求.pdf'"},
         "mode": {"type": "string", "description": "【核心指令】：'text' 代表純文字提取（極速，適合文字章程）；'visual' 代表將圖紙轉化為圖片供視覺分析（極致細節，適合含有工程圖則 Drawings、大樣圖、搭接長度表、表格等情況）。若老闆指示「看圖」、「視覺」或文件含有圖紙表格，必須使用 'visual'。", "enum": ["text", "visual"]}
     }, ["path"]),
+    "build_knowledge_from_drive": create_tool(build_knowledge_from_drive, "build_knowledge_from_drive", "全自動讀取掛載的 Google Drive 雲端硬碟中的 Standard_Docs 資料夾，將裡面的所有工程規範 PDF 轉化為向量大腦記憶庫。當老闆要求『讀取雲端新文件』或『更新知識庫』時調用。", {}, []),
     
-    # 註冊全自動構建知識庫工具
-    "build_knowledge_from_drive": create_tool(build_knowledge_from_drive, "build_knowledge_from_drive", "全自動讀取掛載的 Google Drive 雲端硬碟中的 Standard_Docs 資料夾，將裡面的所有工程規範 PDF 轉化為向量大腦記憶庫。當老闆要求『讀取雲端新文件』或『更新知識庫』時調用。", {}, [])
+    # 🌟 [本次最新新增]：註冊檢索超級大腦工具
+    "search_knowledge_base": create_tool(search_knowledge_base, "search_knowledge_base", "當老闆詢問工程規範、搭接長度、保護層厚度、或任何《Eurocode 2》、CS2:2012、古洞北項目等專業技術問題時，必須調用此工具從超級大腦知識庫中檢索精準條文作答。", {"query": {"type": "string", "description": "要檢索的具體問題或關鍵字，例如 'C35/45 石屎的搭接長度' 或 'Eurocode 2 column minimum reinforcement'"}}, ["query"])
 }
 GET_TOOLS_LIST = [tool["schema"] for tool in AGENT_TOOLS_REGISTRY.values()]
