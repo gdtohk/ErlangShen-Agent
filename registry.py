@@ -32,11 +32,12 @@ async def build_knowledge_from_drive(chat_id, context, **kwargs):
     """讀取掛載的 Google Drive 中的 Standard_Docs 資料夾，將裡面的 PDF 轉化為向量大腦記憶"""
     print("📚 [System] 收到構建知識庫指令，正在翻查 Google Drive...")
     
-    # 🌟 [本次最新新增]：加入路徑「照妖鏡」，精準捕捉加載失敗原因及當前 Python 執行環境
+    # 加入路徑「照妖鏡」，精準捕捉加載失敗原因及當前 Python 執行環境
     try:
         import sys
         from langchain_community.document_loaders import PyPDFLoader
-        from langchain.text_splitter import RecursiveCharacterTextSplitter
+        # 🌟 [本次最新新增]：修復 LangChain 最新版本的依賴路徑，從舊版 langchain.text_splitter 更改為獨立的 langchain_text_splitters 模組
+        from langchain_text_splitters import RecursiveCharacterTextSplitter
         from langchain_community.embeddings import HuggingFaceEmbeddings
         from langchain_community.vectorstores import Chroma
     except Exception as e:
@@ -186,6 +187,8 @@ AGENT_TOOLS_REGISTRY = {
         "path": {"type": "string", "description": "文件或資料夾的相對路徑。留空代表根目錄。例如：'Kwu Tung North' 或 '落标扎铁要求.pdf'"},
         "mode": {"type": "string", "description": "【核心指令】：'text' 代表純文字提取（極速，適合文字章程）；'visual' 代表將圖紙轉化為圖片供視覺分析（極致細節，適合含有工程圖則 Drawings、大樣圖、搭接長度表、表格等情況）。若老闆指示「看圖」、「視覺」或文件含有圖紙表格，必須使用 'visual'。", "enum": ["text", "visual"]}
     }, ["path"]),
+    
+    # 註冊全自動構建知識庫工具
     "build_knowledge_from_drive": create_tool(build_knowledge_from_drive, "build_knowledge_from_drive", "全自動讀取掛載的 Google Drive 雲端硬碟中的 Standard_Docs 資料夾，將裡面的所有工程規範 PDF 轉化為向量大腦記憶庫。當老闆要求『讀取雲端新文件』或『更新知識庫』時調用。", {}, [])
 }
 GET_TOOLS_LIST = [tool["schema"] for tool in AGENT_TOOLS_REGISTRY.values()]
