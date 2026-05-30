@@ -309,8 +309,10 @@ def save():
 def restart():
     if not session.get('logged_in'): return redirect('/')
     try:
-        os.system('pkill -f "python3 bot.py"')
-        os.system('nohup python3 bot.py > agent.log 2>&1 &')
+        # 🌟 修復核心：只殺死 bot.py，絕對不能殺死自己 (5000 端口)
+        os.system('pkill -f "bot.py"')
+        # 🌟 修復核心：使用正確的 venv 虛擬環境啟動
+        os.system('cd /home/ubuntu/ErlangShen-Agent && nohup ./venv/bin/python3 bot.py > agent.log 2>&1 &')
         flash("🚀 前線大腦 (bot.py) 已成功強制重新啟動！")
     except Exception as e:
         flash(f"❌ 重啟失敗：{str(e)}")
