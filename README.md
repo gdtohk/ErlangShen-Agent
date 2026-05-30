@@ -37,14 +37,15 @@ sudo apt update && sudo apt install ffmpeg flac psmisc -y
 Bash
 python3 -m playwright install chromium
 python3 -m playwright install-deps chromium
-2. 下載專案與環境建立
+```
+### 2. 下載專案與環境建立
 Bash
 git clone https://github.com/gdtohk/ErlangShen-Agent.git
 cd ErlangShen-Agent
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-3. 配置環境變數 (.env)
+### 3. 配置環境變數 (.env)
 在根目錄建立 .env 檔案並填寫配置。系統支援動態負載均衡，可設定多組 API Key：
 
 Ini, TOML
@@ -69,7 +70,7 @@ API_KEY_2=你的_API_KEY_2
 # --- 自動收信設定 (可選) ---
 EMAIL_ACCOUNT=你的_Gmail_信箱
 EMAIL_APP_PASSWORD=你的_Gmail_應用程式密碼
-4. 系統啟動與自動化熱更新 (自動防殭屍機制)
+### 4. 系統啟動與自動化熱更新 (自動防殭屍機制)
 ⚠️ 警告：請勿再使用 killall -9 python3 進行手動重啟！這會導致 5000 端口被鎖死。
 
 本專案內建了完美的自動更新腳本 update.sh，該腳本包含了代碼拉取、強制端口清場 (fuser) 以及安全的雙核喚醒機制。
