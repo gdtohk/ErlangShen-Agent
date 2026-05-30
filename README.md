@@ -30,23 +30,31 @@
 ```bash
 # 安裝影音編碼器與進程管理工具 (fuser)
 sudo apt update && sudo apt install ffmpeg flac psmisc -y
-安裝瀏覽器引擎 (重要!)
+```
+
+**安裝瀏覽器引擎 (重要!)**
 本專案使用 Playwright 進行網頁擷取，必須安裝 Chromium 內核：
 
-Bash
+```bash
 python3 -m playwright install chromium
 python3 -m playwright install-deps chromium
-2. 下載專案與環境建立
-Bash
-git clone https://github.com/gdtohk/ErlangShen-Agent.git
+```
+
+### 2. 下載專案與環境建立
+
+```bash
+git clone [https://github.com/gdtohk/ErlangShen-Agent.git](https://github.com/gdtohk/ErlangShen-Agent.git)
 cd ErlangShen-Agent
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-3. 配置環境變數 (.env)
-在根目錄建立 .env 檔案並填寫配置。系統支援動態負載均衡，可設定多組 API Key：
+```
 
-Ini, TOML
+### 3. 配置環境變數 (.env)
+
+在根目錄建立 `.env` 檔案並填寫配置。系統支援動態負載均衡，可設定多組 API Key：
+
+```ini
 # --- Telegram 與基礎設定 ---
 TELEGRAM_TOKEN=你的_Telegram_Bot_Token
 ALLOWED_USER_ID=你的_Telegram_ID
@@ -68,22 +76,30 @@ API_KEY_2=你的_API_KEY_2
 # --- 自動收信設定 (可選) ---
 EMAIL_ACCOUNT=你的_Gmail_信箱
 EMAIL_APP_PASSWORD=你的_Gmail_應用程式密碼
-4. 系統啟動與自動化熱更新 (自動防殭屍機制)
-⚠️ 警告：請勿再使用 killall -9 python3 進行手動重啟！這會導致 5000 端口被鎖死。
+```
 
-本專案內建了完美的自動更新腳本 update.sh，該腳本包含了代碼拉取、強制端口清場 (fuser) 以及安全的雙核喚醒機制。
+### 4. 系統啟動與自動化熱更新 (自動防殭屍機制)
 
-首次啟動或手動重啟，只需執行：
+**⚠️ 警告：請勿再使用 `killall -9 python3` 進行手動重啟！這會導致 5000 端口被鎖死。**
 
-Bash
+本專案內建了完美的自動更新腳本 `update.sh`，該腳本包含了代碼拉取、強制端口清場 (`fuser`) 以及安全的雙核喚醒機制。
+
+**首次啟動或手動重啟，只需執行：**
+
+```bash
 bash update.sh
-日常更新 (Telegram 遙距操控)：
-系統運行後，只需在 Telegram 對機器人發送 「更新你自己」，系統即會在背景全自動執行 update.sh，完成無縫升級。
+```
 
-🚀 進階玩法 (Advanced)
-住宅 IP 落地繞過風控：若遇到 browse_website 被 Cloudflare 攔截，建議在 VPS 本地部署 aimili-vpngate 獲取乾淨住宅 IP，並透過路由分流 (Policy Routing) 將抓取流量指向該本地端口 (如 127.0.0.1:7928)。
+**日常更新 (Telegram 遙距操控)：**
+系統運行後，只需在 Telegram 對機器人發送 **「更新你自己」**，系統即會在背景全自動執行 `update.sh`，完成無縫升級。
 
-Web 模型熱切換：訪問 http://你的IP:5000 登入控制中心，可即時修改 .env 並套用，Telegram 端將即刻生效。
+---
 
-👨‍💻 作者 (Author)
+## 🚀 進階玩法 (Advanced)
+
+* **住宅 IP 落地繞過風控**：若遇到 `browse_website` 被 Cloudflare 攔截，建議在 VPS 本地部署 `aimili-vpngate` 獲取乾淨住宅 IP，並透過路由分流 (Policy Routing) 將抓取流量指向該本地端口 (如 127.0.0.1:7928)。
+* **Web 模型熱切換**：訪問 `http://你的IP:5000` 登入控制中心，可即時修改 `.env` 並套用，Telegram 端將即刻生效。
+
+---
+**👨‍💻 作者 (Author)**
 HO - QS & Rebar Detailer based in Hong Kong
