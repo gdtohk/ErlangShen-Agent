@@ -1,4 +1,3 @@
-Markdown
 <div align="center">
   <img src="ErlangShen_logo.png" alt="ErlangShen Logo" width="200" />
   <h1>ErlangShen Agent (二郎神 AI 助理)</h1>
