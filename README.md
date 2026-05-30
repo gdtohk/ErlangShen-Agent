@@ -48,25 +48,25 @@ pip install -r requirements.txt
 在根目錄建立 .env 檔案並填寫配置。系統支援動態負載均衡，可設定多組 API Key：
 
 Ini, TOML
-# --- Telegram 與基礎設定 ---
+#### --- Telegram 與基礎設定 ---
 TELEGRAM_TOKEN=你的_Telegram_Bot_Token
 ALLOWED_USER_ID=你的_Telegram_ID
 BOT_NAME=二郎神
 OWNER_NAME=老闆
 TIMEZONE=Asia/Hong_Kong
 
-# --- Web 控制台設定 ---
+#### --- Web 控制台設定 ---
 FLASK_SECRET_KEY=自訂一串複雜密鑰
 WEB_ADMIN_PASSWORD=網頁後台登入密碼
 
-# --- AI 引擎設定 (支援多節點自動切換) ---
+#### --- AI 引擎設定 (支援多節點自動切換) ---
 MODEL_NAME=gemini-2.5-flash
 API_URL_1=你的_API_網址_1
 API_KEY_1=你的_API_KEY_1
 API_URL_2=你的_API_網址_2
 API_KEY_2=你的_API_KEY_2
 
-# --- 自動收信設定 (可選) ---
+#### --- 自動收信設定 (可選) ---
 EMAIL_ACCOUNT=你的_Gmail_信箱
 EMAIL_APP_PASSWORD=你的_Gmail_應用程式密碼
 ### 4. 系統啟動與自動化熱更新 (自動防殭屍機制)
