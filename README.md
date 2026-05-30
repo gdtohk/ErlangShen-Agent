@@ -1,4 +1,3 @@
-Markdown
 <div align="center">
   <img src="ErlangShen_logo.png" alt="ErlangShen Logo" width="200" />
   <h1>ErlangShen Agent (二郎神 AI 助理)</h1>
@@ -27,10 +26,6 @@ Markdown
 ### 1. 系統底層環境準備
 
 為了處理語音與瀏覽網頁，必須安裝影音處理器及瀏覽器內核。建議於 Ubuntu / Debian 環境下執行：
-
-```bash
-# 安裝影音編碼器與進程管理工具 (fuser)
-sudo apt update && sudo apt install ffmpeg flac psmisc -y
 安裝瀏覽器引擎 (重要!)
 本專案使用 Playwright 進行網頁擷取，必須安裝 Chromium 內核：
 
@@ -39,7 +34,7 @@ python3 -m playwright install chromium
 python3 -m playwright install-deps chromium
 2. 下載專案與環境建立
 Bash
-git clone [https://github.com/gdtohk/ErlangShen-Agent.git](https://github.com/gdtohk/ErlangShen-Agent.git)
+git clone https://github.com/gdtohk/ErlangShen-Agent.git
 cd ErlangShen-Agent
 python3 -m venv venv
 source venv/bin/activate
@@ -88,3 +83,7 @@ Web 模型熱切換：訪問 http://你的IP:5000 登入控制中心，可即時
 
 👨‍💻 作者 (Author)
 HO - QS & Rebar Detailer based in Hong Kong
+
+```bash
+# 安裝影音編碼器與進程管理工具 (fuser)
+sudo apt update && sudo apt install ffmpeg flac psmisc -y
