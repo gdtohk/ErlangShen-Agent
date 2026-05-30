@@ -1,3 +1,4 @@
+Markdown
 <div align="center">
   <img src="ErlangShen_logo.png" alt="ErlangShen Logo" width="200" />
   <h1>ErlangShen Agent (二郎神 AI 助理)</h1>
@@ -30,7 +31,6 @@
 ```bash
 # 安裝影音編碼器與進程管理工具 (fuser)
 sudo apt update && sudo apt install ffmpeg flac psmisc -y
-
 安裝瀏覽器引擎 (重要!)
 本專案使用 Playwright 進行網頁擷取，必須安裝 Chromium 內核：
 
