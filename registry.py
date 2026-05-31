@@ -8,6 +8,7 @@ import base64
 import urllib.parse
 import os
 import re
+from youtube_transcript_api import YouTubeTranscriptApi # 🌟 新增：引入 YouTube 字幕提取神器
 from experience_manager import exp_manager  # 🌟 新增：引入經驗大腦
 
 from skills.scheduler import schedule_daily_weather
@@ -224,6 +225,40 @@ async def read_webpage_with_jina(chat_id, context, url: str):
     except Exception as e: 
         return f"❌ 讀取發生錯誤：{str(e)}"
 
+# ================= YouTube 影片字幕提取 (🌟 滿血復活 + 住宅 IP 護體) =================
+async def summarize_youtube_video(chat_id, context, url: str):
+    print(f"📺 [Debug] 準備讀取 YouTube 影片：{url}")
+    try:
+        # 提取 Video ID (支援多種 YouTube 網址格式)
+        video_id_match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", url)
+        if not video_id_match:
+            return "❌ 無法識別 YouTube 影片網址，請檢查 Link 是否正確。"
+        video_id = video_id_match.group(1)
+
+        # 🌟 關鍵核心：強制套用 VPNGate 住宅 IP 代理 (SOCKS5)
+        proxies = {
+            "http": "socks5://127.0.0.1:7928",
+            "https": "socks5://127.0.0.1:7928"
+        }
+
+        # 獲取字幕 (優先拿繁體/簡體中文，冇就攞英文然後叫 AI 翻譯)
+        transcript_list = YouTubeTranscriptApi.get_transcript(
+            video_id, 
+            languages=['zh-HK', 'zh-TW', 'zh', 'zh-Hans', 'en'], 
+            proxies=proxies
+        )
+
+        # 組合所有字幕文字
+        full_text = " ".join([t['text'] for t in transcript_list])
+
+        # 截斷過長文字，避免塞爆 Token (擷取前 4000 字)
+        final_text = full_text[:4000]
+
+        return f"📺 YouTube 字幕提取成功！以下係影片內容，請為老闆做詳細總結：\n\n{final_text}"
+
+    except Exception as e:
+        return f"❌ 讀取 YouTube 發生錯誤 (可能影片無提供 CC 字幕，或受地區/年齡限制)：{str(e)}"
+
 # ================= 寫入長期記憶 (🌟 新增功能) =================
 async def save_agent_experience(chat_id, context, content: str):
     print(f"🧠 [Debug] 正在將經驗寫入大腦：{content}")
@@ -233,7 +268,7 @@ async def save_agent_experience(chat_id, context, content: str):
 def create_tool(func, name, desc, params, required):
     return {"func": func, "schema": {"type": "function", "function": {"name": name, "description": desc, "parameters": {"type": "object", "properties": params, "required": required}}}}
 
-# ================= 技能註冊表 (無 YouTube 版) =================
+# ================= 技能註冊表 (終極隱形斗篷 + YouTube 復活版) =================
 AGENT_TOOLS_REGISTRY = {
     "calc_rebar_weight": create_tool(calc_rebar_weight, "calc_rebar_weight", "計算鋼筋重量。", {"d": {"type": "number"}, "length": {"type": "number"}, "qty": {"type": "number"}}, ["d", "length"]),
     "get_hk_weather_detailed": create_tool(get_hk_weather_detailed, "get_hk_weather_detailed", "獲取香港最新天氣預報。", {}, []),
@@ -257,6 +292,7 @@ AGENT_TOOLS_REGISTRY = {
     
     # 🌟 [本次最新修復]：刪除帶有敏感軍事字的英文說明，改用純中文，防止自爆！
     "build_knowledge_from_drive": create_tool(build_knowledge_from_drive, "build_knowledge_from_drive", "全自動讀取掛載的 Google Drive 雲端硬碟中的 Standard_Docs 資料夾，將裡面的所有工程規範 PDF 轉化為向量大腦記憶庫。當老闆要求『讀取雲端新文件』或『更新知識庫』時調用。", {}, []),
-    "search_knowledge_base": create_tool(search_knowledge_base, "search_knowledge_base", "當老闆詢問工程規範、搭接長度、保護層厚度、或任何《Eurocode 2》、CS2:2012、古洞北項目等專業技術問題時，必須調用此工具從超級大腦知識庫中檢索精準條文作答。", {"query": {"type": "string", "description": "要檢索的具體問題或關鍵字，例如 'C35/45 石屎的搭接長度' 或 '柱的最小配筋率'"}}, ["query"])
+    "search_knowledge_base": create_tool(search_knowledge_base, "search_knowledge_base", "當老闆詢問工程規範、搭接長度、保護層厚度、或任何《Eurocode 2》、CS2:2012、古洞北項目等專業技術問題時，必須調用此工具從超級大腦知識庫中檢索精準條文作答。", {"query": {"type": "string", "description": "要檢索的具體問題或關鍵字，例如 'C35/45 石屎的搭接長度' 或 '柱的最小配筋率'"}}, ["query"]),
+    "summarize_youtube_video": create_tool(summarize_youtube_video, "summarize_youtube_video", "讀取 YouTube 影片的 CC 字幕內容。當老闆發送 YouTube 網址或要求總結 YouTube 影片時，必須調用此工具來獲取內容。", {"url": {"type": "string"}}, ["url"]) # 🌟 新增：復活的 YouTube 工具
 }
 GET_TOOLS_LIST = [tool["schema"] for tool in AGENT_TOOLS_REGISTRY.values()]
