@@ -128,8 +128,9 @@ async def get_global_weather(chat_id, context, location):
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}
         url = f"https://wttr.in/{urllib.parse.quote(location)}?format=j1"
+        # 🌟 [修改] 加入 HTTP 代理
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers) as resp:
+            async with session.get(url, headers=headers, proxy="http://127.0.0.1:7928") as resp:
                 if resp.status == 200:
                     data = await resp.json(content_type=None)
                     if isinstance(data, dict) and 'current_condition' in data and len(data['current_condition']) > 0:
@@ -151,8 +152,9 @@ async def search_web(chat_id, context, query, recency=None):
             
         url = f"https://news.google.com/rss/search?q={formatted_query}&hl=zh-HK&gl=HK&ceid=HK:zh-Hant"
         headers = {'User-Agent': 'Mozilla/5.0'}
+        # 🌟 [修改] 加入 HTTP 代理，隱藏機房 IP
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers) as resp:
+            async with session.get(url, headers=headers, proxy="http://127.0.0.1:7928") as resp:
                 if resp.status != 200: return f"❌ 網絡連線失敗 (HTTP {resp.status})。"
                 xml_data = await resp.text()
                 root = ET.fromstring(xml_data)
@@ -172,7 +174,11 @@ async def browse_website_with_playwright(chat_id, context, url: str):
     print(f"🌐 [Debug] 準備訪問網頁：{url}")
     try:
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
+            # 🌟 [修改] 強制 Playwright 使用 VPNGate SOCKS5 代理，完美繞過 Cloudflare
+            browser = await p.chromium.launch(
+                headless=True,
+                proxy={"server": "socks5://127.0.0.1:7928"}
+            )
             page = await browser.new_page(viewport={'width': 1280, 'height': 800})
             await page.goto(url, timeout=60000, wait_until="domcontentloaded")
             content = await page.evaluate("document.body.innerText")
@@ -200,8 +206,9 @@ async def read_webpage_with_jina(chat_id, context, url: str):
         # 🚨 設置 30 秒強制超時，防止二郎神再次無限期 Hang 機
         timeout = aiohttp.ClientTimeout(total=30)
         
+        # 🌟 [修改] 加入 HTTP 代理，即使 Jina 遇到區域限制亦能輕鬆繞過
         async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(jina_url, headers=headers) as resp:
+            async with session.get(jina_url, headers=headers, proxy="http://127.0.0.1:7928") as resp:
                 if resp.status == 200:
                     raw_text = await resp.text()
                     
