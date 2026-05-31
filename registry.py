@@ -9,6 +9,7 @@ import urllib.parse
 import os
 import re
 from youtube_transcript_api import YouTubeTranscriptApi # 🌟 引入 YouTube 字幕提取神器
+import yt_dlp # 🌟 新增：引入 X 光透視神器
 from experience_manager import exp_manager  # 🌟 新增：引入經驗大腦
 
 from skills.scheduler import schedule_daily_weather
@@ -225,7 +226,7 @@ async def read_webpage_with_jina(chat_id, context, url: str):
     except Exception as e: 
         return f"❌ 讀取發生錯誤：{str(e)}"
 
-# ================= YouTube 影片字幕提取 (🌟 極限抓取強化版) =================
+# ================= YouTube 影片雙軌讀取 (🌟 字幕 + X光透視) =================
 async def summarize_youtube_video(chat_id, context, url: str):
     print(f"📺 [Debug] 準備讀取 YouTube 影片：{url}")
     try:
@@ -241,37 +242,65 @@ async def summarize_youtube_video(chat_id, context, url: str):
             "https": "socks5://127.0.0.1:7928"
         }
 
-        # 🌟 [本次重點升級]：採用霸王硬上弓式抓取邏輯
-        # 1. 獲取該影片背後所有形式嘅字幕清單 (包含隱藏的自動生成字幕)
-        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id, proxies=proxies)
-        
         try:
-            # 2. 優先尋找中文或英文嘅字幕 (人工上傳或自動生成都可以)
-            transcript = transcript_list.find_transcript(['zh-HK', 'zh-TW', 'zh', 'zh-Hans', 'en'])
-        except:
-            # 3. 如果連中英文都無，直接抽取清單入面第一個可用嘅字幕 (例如日文/韓文機翻)
-            transcript_list_all = list(transcript_list)
-            if not transcript_list_all:
-                raise Exception("此影片完全無任何字幕軌道")
-            transcript = transcript_list_all[0]
-
-        # 4. 如果最終抽到嘅唔係中文字幕，強制呼叫 YouTube 底層 API 即時翻譯做繁體中文！
-        if not transcript.language_code.startswith('zh'):
+            # 🌟 [本次重點升級]：採用霸王硬上弓式抓取邏輯
+            # 1. 獲取該影片背後所有形式嘅字幕清單 (包含隱藏的自動生成字幕)
+            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id, proxies=proxies)
+            
             try:
-                transcript = transcript.translate('zh-Hant')
+                # 2. 優先尋找中文或英文嘅字幕 (人工上傳或自動生成都可以)
+                transcript = transcript_list.find_transcript(['zh-HK', 'zh-TW', 'zh', 'zh-Hans', 'en'])
             except:
-                pass # 翻譯失敗就用原語言頂硬上
+                # 3. 如果連中英文都無，直接抽取清單入面第一個可用嘅字幕 (例如日文/韓文機翻)
+                transcript_list_all = list(transcript_list)
+                if not transcript_list_all:
+                    raise Exception("此影片完全無任何字幕軌道")
+                transcript = transcript_list_all[0]
+
+            # 4. 如果最終抽到嘅唔係中文字幕，強制呼叫 YouTube 底層 API 即時翻譯做繁體中文！
+            if not transcript.language_code.startswith('zh'):
+                try:
+                    transcript = transcript.translate('zh-Hant')
+                except:
+                    pass # 翻譯失敗就用原語言頂硬上
+                    
+            # 5. 組合所有字幕文字
+            full_text = " ".join([t['text'] for t in transcript.fetch()])
+
+            # 截斷過長文字，避免塞爆 Token (擷取前 4000 字)
+            final_text = full_text[:4000]
+
+            return f"📺 YouTube 字幕提取成功！以下係影片內容，請為老闆做詳細總結：\n\n{final_text}"
+
+        except Exception as transcript_error:
+            # 🌟 6. [終極神技] 找不到字幕？啟動 yt-dlp X光透視模式，直接提取影片簡介！
+            print("⚠️ [Debug] 找不到字幕，啟動 yt-dlp 透視模式攔截 Description...")
+            
+            def fetch_metadata():
+                ydl_opts = {
+                    'proxy': 'socks5://127.0.0.1:7928',
+                    'quiet': True,
+                    'skip_download': True, # 我們只要資訊，不下載整條片
+                }
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    return ydl.extract_info(url, download=False)
+            
+            # 使用 asyncio.to_thread 避免阻塞主進程
+            info = await asyncio.to_thread(fetch_metadata)
+            
+            title = info.get('title', '未知標題')
+            description = info.get('description', '')
+            
+            if not description:
+                return f"❌ 老闆，呢條片不但無提供字幕，而且作者連 Description (影片簡介) 都無寫，神仙難救！"
                 
-        # 5. 組合所有字幕文字
-        full_text = " ".join([t['text'] for t in transcript.fetch()])
-
-        # 截斷過長文字，避免塞爆 Token (擷取前 4000 字)
-        final_text = full_text[:4000]
-
-        return f"📺 YouTube 字幕提取成功！以下係影片內容，請為老闆做詳細總結：\n\n{final_text}"
+            # 截取前 3500 字，防止簡介過長
+            safe_desc = description[:3500]
+            
+            return f"⚠️ 報告老闆：這條影片沒有提供文字字幕。但我已成功啟動 X 光透視，攔截了它的元數據！\n\n【影片標題】：{title}\n\n【詳細簡介與重要連結】：\n{safe_desc}\n\n(🚨 系統指令：請根據上述標題和簡介，為老闆提煉出最核心的教學內容或網址連結，並解答老闆的問題！)"
 
     except Exception as e:
-        return f"❌ 讀取 YouTube 發生錯誤 (可能影片完全無提供任何形式嘅隱藏字幕，或受地區/年齡限制)：{str(e)}"
+        return f"❌ 讀取 YouTube 發生錯誤 (可能影片受地區/年齡限制或被刪除)：{str(e)}"
 
 # ================= 寫入長期記憶 =================
 async def save_agent_experience(chat_id, context, content: str):
@@ -303,8 +332,10 @@ AGENT_TOOLS_REGISTRY = {
         "path": {"type": "string", "description": "文件或資料夾的相對路徑。留空代表根目錄。例如：'Kwu Tung North' 或 '落标扎铁要求.pdf'"},
         "mode": {"type": "string", "description": "【核心指令】：'text' 代表純文字提取（極速，適合文字章程）；'visual' 代表將圖紙轉化為圖片供視覺分析（極致細節，適合含有工程圖則 Drawings、大樣圖、搭接長度表、表格等情況）。若老闆指示「看圖」、「視覺」或文件含有圖紙表格，必須使用 'visual'。", "enum": ["text", "visual"]}
     }, ["path"]), 
+    
+    # 🌟 [本次最新修復]：刪除帶有敏感軍事字的英文說明，改用純中文，防止自爆！
     "build_knowledge_from_drive": create_tool(build_knowledge_from_drive, "build_knowledge_from_drive", "全自動讀取掛載的 Google Drive 雲端硬碟中的 Standard_Docs 資料夾，將裡面的所有工程規範 PDF 轉化為向量大腦記憶庫。當老闆要求『讀取雲端新文件』或『更新知識庫』時調用。", {}, []),
     "search_knowledge_base": create_tool(search_knowledge_base, "search_knowledge_base", "當老闆詢問工程規範、搭接長度、保護層厚度、或任何《Eurocode 2》、CS2:2012、古洞北項目等專業技術問題時，必須調用此工具從超級大腦知識庫中檢索精準條文作答。", {"query": {"type": "string", "description": "要檢索的具體問題或關鍵字，例如 'C35/45 石屎的搭接長度' 或 '柱的最小配筋率'"}}, ["query"]),
-    "summarize_youtube_video": create_tool(summarize_youtube_video, "summarize_youtube_video", "讀取 YouTube 影片的 CC 字幕內容。當老闆發送 YouTube 網址或要求總結 YouTube 影片時，必須調用此工具來獲取內容。", {"url": {"type": "string"}}, ["url"]) 
+    "summarize_youtube_video": create_tool(summarize_youtube_video, "summarize_youtube_video", "讀取 YouTube 影片內容。當老闆發送 YouTube 網址或要求總結 YouTube 影片時，必須調用此工具來獲取內容。", {"url": {"type": "string"}}, ["url"]) 
 }
 GET_TOOLS_LIST = [tool["schema"] for tool in AGENT_TOOLS_REGISTRY.values()]
