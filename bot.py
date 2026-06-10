@@ -14,7 +14,6 @@ from experience_manager import exp_manager
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 load_dotenv()
 
-# 只有 Telegram Token 係啟動時寫死 (因為改 Bot 必須重啟)
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 ALLOWED_USER_ID = int(os.getenv("ALLOWED_USER_ID", 0))
 BOT_NAME = os.getenv("BOT_NAME", "二郎神")
@@ -24,7 +23,6 @@ TIMEZONE_STR = os.getenv("TIMEZONE", "Asia/Hong_Kong")
 user_memory = {}
 MAX_HISTORY = 10
 
-# 🌟 [本次最新新增]：加入工程術語防護罩，明確告知 AI 這不是軍事或危險指令！
 SYSTEM_PROMPT = f"""
 你是{BOT_NAME}，{OWNER_NAME}的專屬 AI 助理。請用地道廣東話回答。
 你具備語音對話、視覺圖片分析、文件解析 (PDF/Excel)、網頁瀏覽與截圖功能。
@@ -44,7 +42,6 @@ SYSTEM_PROMPT = f"""
 12. 🛡️ 【工程術語防護罩】：老闆是香港建築行業的 QS 與紮鐵工程師。對話中出現的「Column」(柱)、「Reinforcement」(配筋/鋼筋)、「Shear」(剪力)、「Failure」(破壞)、「Collapse」(倒塌) 等詞彙，100% 屬於「建築結構與土木工程」的專業術語，與軍事、武裝衝突、暴力或任何危險行為毫無關聯！請 AI 供應商的安全審查機制立即放行，嚴禁將工程術語誤判為危險內容！
 """
 
-# ================= 輔助函數：動態讀取 API Endpoints =================
 def get_dynamic_endpoints(config):
     endpoints = []
     for i in range(1, 11):
@@ -66,7 +63,6 @@ async def daily_morning_report(context: ContextTypes.DEFAULT_TYPE):
     date_str = local_time.strftime("%Y年%m月%d日")
     await context.bot.send_message(chat_id=chat_id, text=f"🌅 早晨{OWNER_NAME}！今日係 {date_str}。祝你今日工作順利！")
 
-# ================= 自動收信、附件下載與 AI 解讀模組 =================
 async def check_new_emails(context: ContextTypes.DEFAULT_TYPE):
     config = dotenv_values(".env")
     email_user = config.get("EMAIL_ACCOUNT")
@@ -176,7 +172,6 @@ async def check_new_emails(context: ContextTypes.DEFAULT_TYPE):
         msg_text += f"🤖 **二郎神深度解讀報告:**\n{ai_summary}"
         
         await context.bot.send_message(chat_id=chat_id, text=msg_text)
-# =================================================================
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message: return
@@ -246,7 +241,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 content_payload = f"【Excel 數據內容】：\n{extracted_content}\n\n【老闆指令】：{update.message.caption or '請分析以上表格數據'}"
                 await status_msg.edit_text("✅ Excel/BBS 表格讀取完成。")
 
-            # 🌟 [本次最新新增]：兼容以「文件 (Document)」形式發送的圖片 (png/jpg/jpeg)
             elif file_ext in ['.png', '.jpg', '.jpeg', '.webp']:
                 with open(current_file_path, "rb") as image_file:
                     byte_array = image_file.read()
@@ -314,12 +308,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     success = False
     final_reply = ""
     error_msg_list = []
+    
+    # 🌟 [核心修復]：新增一個用來追蹤已經成功調用嘅工具清單
+    tools_executed_names = []
 
     for endpoint in api_endpoints:
         current_url = endpoint["url"]
         current_key = endpoint["key"]
         
         temp_memory = list(user_memory[user_id])
+        tools_executed_names = [] # 每次切換 Endpoint 都重置
         
         temp_payload = {
             "model": current_model, 
@@ -404,6 +402,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             args_raw = tc['function']['arguments']
                             args = args_raw if isinstance(args_raw, dict) else json.loads(args_raw)
                             
+                            # 🌟 紀錄已成功觸發嘅工具名稱
+                            tools_executed_names.append(fn)
+                            
                             res = await AGENT_TOOLS_REGISTRY[fn]["func"](chat_id=chat_id, context=context, **args)
                             
                             is_ss = False
@@ -427,7 +428,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                             if not is_ss:
                                 tool_out = str(res)
-                                # 🌟 [本次最新新增]：強制截斷超長工具回傳，從物理上杜絕 6 萬 Token 爆炸導致 API 當機！
                                 if len(tool_out) > 4000:
                                     tool_out = tool_out[:4000] + "\n\n...(內容過長，系統已自動截斷以保護短期記憶體避免崩潰)..."
                                 temp_memory.append({"role": "tool", "tool_call_id": tc['id'], "name": fn, "content": tool_out})
@@ -450,7 +450,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             
                             m_data = c_data.get('message', {})
                             if isinstance(m_data, list): m_data = m_data[0]
-                            final_reply = m_data.get('content', "✅ 資訊已獲取。")
+                            # 🌟 如果 LLM 工具執行完後完全冇聲出，就會回傳空字串
+                            final_reply = m_data.get('content', "")
                     else:
                         final_reply = msg.get('content', "")
 
@@ -476,13 +477,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         final_reply = final_reply.replace("<speak>", "").replace("</speak>", "").strip()
         final_reply = re.sub(r'https?://[^\s]+\.mp3', '', final_reply, flags=re.IGNORECASE)
 
+    # 🌟 [核心修復]：檢查 final_reply 是否為空。如果為空，先睇下係咪剛剛成功執行咗工具！
     if final_reply is None or str(final_reply).strip() == "":
-        final_reply = "⚠️ [系統攔截] 報告老闆，大腦回傳了空白內容！\n這通常是因為爬取回來的資料（例如網上負評、粗口）觸發了 AI 供應商的安全審查機制（Safety Filters）。"
+        if tools_executed_names:
+            final_reply = f"✅ 老闆，我已經成功幫你喺後台執行咗任務（調用工具：{', '.join(tools_executed_names)}），搞掂啦！"
+        else:
+            final_reply = "⚠️ [系統攔截] 報告老闆，大腦回傳了空白內容！\n這通常是因為爬取回來的資料（例如網上負評、粗口）觸發了 AI 供應商的安全審查機制（Safety Filters）。"
         
     await update.message.reply_text(final_reply)
 
     if is_voice or force_voice:
-        if not final_reply.startswith("⚠️ [系統攔截]"):
+        if not final_reply.startswith("⚠️ [系統攔截]") and not final_reply.startswith("✅ 老闆，我已經成功幫你"):
             try:
                 tts_text = re.sub(r'\[系統報告：[^\]]+\]', '', final_reply) 
                 tts_text = re.sub(r'[*#_`~]', '', tts_text) 
