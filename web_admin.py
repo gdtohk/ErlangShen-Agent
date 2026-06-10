@@ -309,9 +309,7 @@ def save():
 def restart():
     if not session.get('logged_in'): return redirect('/')
     try:
-        # 🌟 修復核心：只殺死 bot.py，絕對不能殺死自己 (5000 端口)
         os.system('pkill -f "bot.py"')
-        # 🌟 修復核心：使用正確的 venv 虛擬環境啟動
         os.system('cd /home/ubuntu/ErlangShen-Agent && nohup ./venv/bin/python3 bot.py > agent.log 2>&1 &')
         flash("🚀 前線大腦 (bot.py) 已成功強制重新啟動！")
     except Exception as e:
@@ -387,10 +385,15 @@ async def api_chat():
                     temp_memory = list(WEB_MEMORY)
                     temp_memory.append(msg)
                     
+                    # 🌟 [核心修復]：Web 端同步加入已執行工具追蹤
+                    tools_executed_names = []
+                    
                     for tc in msg['tool_calls']:
                         fn_name = tc['function']['name']
                         args_raw = tc['function']['arguments']
                         args = args_raw if isinstance(args_raw, dict) else json.loads(args_raw)
+                        
+                        tools_executed_names.append(fn_name)
                         
                         try:
                             if fn_name in AGENT_TOOLS_REGISTRY:
@@ -402,7 +405,15 @@ async def api_chat():
                     payload["messages"] = temp_memory
                     async with http_session.post(api_url, headers=headers, json=payload) as resp2:
                         data2 = await resp2.json()
-                        final_reply = data2['choices'][0]['message']['content']
+                        
+                        # 🌟 [核心修復]：如果 LLM 回覆空白，直接用已執行工具清單頂上！
+                        final_reply = data2['choices'][0]['message'].get('content', '')
+                        if not final_reply or str(final_reply).strip() == "":
+                            if tools_executed_names:
+                                final_reply = f"✅ 老闆，任務已在後台完成（已調用工具：{', '.join(tools_executed_names)}）。"
+                            else:
+                                final_reply = "⚠️ [系統攔截] 大腦回傳空白內容。"
+                                
                         WEB_MEMORY.append({"role": "assistant", "content": final_reply})
                         return jsonify({"reply": final_reply})
                 else:
