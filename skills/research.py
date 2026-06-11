@@ -1,42 +1,61 @@
-import aiohttp
-import re
 import asyncio
 import os
+from tavily import TavilyClient
+from crawl4ai import AsyncWebCrawler
+
+# 獨立嘅同步搜尋函數，轉用 Tavily 官方 API，永不被 Block！
+def search_target_urls(query: str):
+    urls = []
+    try:
+        tavily_key = os.getenv("TAVILY_API_KEY", "")
+        if not tavily_key:
+            print("❌ 系統缺少 TAVILY_API_KEY")
+            return urls
+            
+        client = TavilyClient(api_key=tavily_key)
+        # 使用 advanced 深度搜尋模式，攞最精準嘅頭 2 個網址
+        response = client.search(query, search_depth="advanced", max_results=2)
+        
+        for result in response.get('results', []):
+            urls.append(result['url'])
+            
+    except Exception as e:
+        print(f"Tavily API 搜尋發生錯誤: {e}")
+    return urls
 
 async def perform_deep_research(chat_id, context, query: str, **kwargs):
     """
-    深度研究工具：自動搜尋並爬取多個網頁內容，直接生成完整數據供總結。
+    深度研究工具 (Tavily 官方 API + Crawl4AI 終極極速版)
+    【⚠️ 系統嚴厲警告】：參數 query 必須填寫具體關鍵字，絕對禁止填寫 "query" 這個單字！
     """
     print(f"🕵️‍♂️ [深度研究] 啟動：{query}")
     
-    # 1. 呼叫現有的 Jina 借刀殺人 API 進行搜尋與讀取
-    search_url = f"https://s.jina.ai/{query}"
-    
-    # 讀取 .env 中的 API Key (如果無設定，就會係空字串)
-    jina_key = os.getenv("JINA_API_KEY", "")
-    
-    headers = {
-        'User-Agent': 'Mozilla/5.0',
-        'Accept': 'application/json'
-    }
-    
-    # 如果有 API Key，就掛上通行證
-    if jina_key:
-        headers['Authorization'] = f"Bearer {jina_key}"
-    
+    # 🎯 防呆機制：防止 AI 大腦短路
+    if query.strip().lower() == "query":
+        return "❌ 系統攔截：你個 AI 大腦短路啦！參數 query 填錯咗做 'query'，請重新調用並填入真正要搵嘅關鍵字！"
+        
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(search_url, headers=headers) as resp:
-                if resp.status == 200:
-                    raw_content = await resp.text()
-                    # 截取前 8000 字（Gemini 2.5 Flash 吞得落），確保資料量足夠寫報告
-                    final_data = raw_content[:8000]
-                    return f"🕵️‍♂️ 深度研究報告原始數據已獲取：\n\n{final_data}\n\n🚨 請根據以上詳盡資料，立刻為老闆寫出深度分析報告，唔准再叫老闆等！"
-                elif resp.status == 401:
-                    return "❌ 深度研究失敗 (HTTP 401)。未授權，請檢查 .env 檔案內的 JINA_API_KEY 是否正確填寫。"
-                elif resp.status == 402:
-                    return "❌ 深度研究失敗 (HTTP 402)。Jina API 免費額度或每日限制已達到，請聽日再試，或者改用 search_web 工具。"
-                else:
-                    return f"❌ 深度研究失敗，無法連接搜尋引擎 (HTTP {resp.status})。"
+        # 1. 透過 Tavily API 獲取網址 (100% 繞過 Google 防爬蟲)
+        urls = await asyncio.to_thread(search_target_urls, query)
+        
+        if not urls:
+            return "❌ 深度研究失敗：Tavily API 搵唔到相關網址，或者未設定 TAVILY_API_KEY。"
+            
+        report_data = f"🔍 成功透過 Tavily API 搵到以下來源，開始極速讀取：\n{urls}\n\n"
+        
+        # 2. 啟動 Crawl4AI 隱形瀏覽器爬取內文 (直連，無 Proxy 阻礙)
+        async with AsyncWebCrawler() as crawler:
+            for url in urls:
+                try:
+                    result = await crawler.arun(url=url)
+                    if result.success:
+                        report_data += f"【來源】：{url}\n【內容】：{result.markdown[:4000]}\n\n"
+                    else:
+                        report_data += f"【來源】：{url}\n【狀態】：讀取失敗 ({result.error_message})\n\n"
+                except Exception as inner_e:
+                    print(f"爬取 {url} 失敗: {inner_e}")
+                    
+        return f"🕵️‍♂️ 深度研究報告原始數據已獲取：\n\n{report_data}\n\n🚨 請根據以上詳盡資料，立刻為老闆寫出深度分析報告！"
+
     except Exception as e:
         return f"❌ 深度研究出錯：{str(e)}"
