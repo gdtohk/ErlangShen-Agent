@@ -337,4 +337,4 @@ AGENT_TOOLS_REGISTRY = {
     
     # 🌟 [本次最新修復]：刪除帶有敏感軍事字的英文說明，改用純中文，防止自爆！
     "build_knowledge_from_drive": create_tool(build_knowledge_from_drive, "build_knowledge_from_drive", "全自動讀取掛載的 Google Drive 雲端硬碟中的 Standard_Docs 資料夾，將裡面的所有工程規範 PDF 轉化為向量大腦記憶庫。當老闆要求『讀取雲端新文件』或『更新知識庫』時調用。", {}, []),
-    "search_knowledge_base": create_tool(search_knowledge_base, "search_knowledge_base", "當老闆詢問工程規範、搭接長度、保護層厚度、或任何《Eurocode 2》、CS2:2012、古洞北項目等專業技術
+    "search_knowledge_base": create_tool(search_knowledge_base, "search_knowledge_base", "當老闆詢問工程規範、搭接長度、保護層厚度、或任何《Eurocode 2》、CS2:2012、古洞北項目等專業技術問題時，必須調用此工具從超級大腦知識庫中檢索精準條文作答。", {"query": {"type": "string", "description": "要檢索的具體問題或關鍵字，例如 'C35/45 石屎的搭接長度' 或 '柱的最小配筋率'"}}, ["query"]),
