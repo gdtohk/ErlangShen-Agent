@@ -19,6 +19,7 @@ from skills.reminder import set_reminder
 from skills.system_ops import update_from_github
 from skills.research import perform_deep_research # 🌟 新增：引入深度研究
 from skills.manage_my_drive import manage_my_drive # 🌟 新增：引入雲端硬碟讀取技能
+from skills.last30days import perform_last30days_research # 🌟 新增：引入輿情雷達
 
 # 🌟 新增：萬能解碼器，專治 \uXXXX 火星文
 def decode_unicode_text(text):
@@ -328,6 +329,7 @@ AGENT_TOOLS_REGISTRY = {
     "scrape_webpage_text": create_tool(read_webpage_with_jina, "scrape_webpage_text", "使用 Jina API 極速讀取網頁純文字內容。適合用來閱讀新聞、文章、文檔等大量文字嘅網址。", {"url": {"type": "string"}}, ["url"]),
     "save_agent_experience": create_tool(save_agent_experience, "save_agent_experience", "儲存重要的工作經驗、規範或老闆的糾正指示到長期記憶庫中。當老闆要求你『記住』某事時調用。", {"content": {"type": "string"}}, ["content"]), # 🌟 新增：註冊記憶工具
     "deep_research": create_tool(perform_deep_research, "deep_research", "針對複雜問題進行深度研究與分析。當老闆要求寫報告、做詳細對比、或搜查多個網頁資料時，必須使用此工具一炮過獲取完整數據。", {"query": {"type": "string"}}, ["query"]), # 🌟 新增：深度研究工具
+    "last30days": create_tool(perform_last30days_research, "last30days", "全網輿情與趨勢雷達。當老闆詢問外國網民看法、社交媒體討論(如 Reddit, Hacker News, Twitter, YouTube) 或指定「最近 30 日趨勢/評價」時，必須調用此工具。", {"topic": {"type": "string"}}, ["topic"]), # 🌟 新增：輿情雷達
     "manage_my_drive": create_tool(manage_my_drive, "manage_my_drive", "瀏覽掛載的 Google Drive 資料夾，或提取當中的 PDF/Excel/CSV/Txt 文件內容。當老闆要求讀取雲端硬碟(my_drive)裡的文件時必須調用此工具。", {
         "path": {"type": "string", "description": "文件或資料夾的相對路徑。留空代表根目錄。例如：'Kwu Tung North' 或 '落标扎铁要求.pdf'"},
         "mode": {"type": "string", "description": "【核心指令】：'text' 代表純文字提取（極速，適合文字章程）；'visual' 代表將圖紙轉化為圖片供視覺分析（極致細節，適合含有工程圖則 Drawings、大樣圖、搭接長度表、表格等情況）。若老闆指示「看圖」、「視覺」或文件含有圖紙表格，必須使用 'visual'。", "enum": ["text", "visual"]}
@@ -335,7 +337,4 @@ AGENT_TOOLS_REGISTRY = {
     
     # 🌟 [本次最新修復]：刪除帶有敏感軍事字的英文說明，改用純中文，防止自爆！
     "build_knowledge_from_drive": create_tool(build_knowledge_from_drive, "build_knowledge_from_drive", "全自動讀取掛載的 Google Drive 雲端硬碟中的 Standard_Docs 資料夾，將裡面的所有工程規範 PDF 轉化為向量大腦記憶庫。當老闆要求『讀取雲端新文件』或『更新知識庫』時調用。", {}, []),
-    "search_knowledge_base": create_tool(search_knowledge_base, "search_knowledge_base", "當老闆詢問工程規範、搭接長度、保護層厚度、或任何《Eurocode 2》、CS2:2012、古洞北項目等專業技術問題時，必須調用此工具從超級大腦知識庫中檢索精準條文作答。", {"query": {"type": "string", "description": "要檢索的具體問題或關鍵字，例如 'C35/45 石屎的搭接長度' 或 '柱的最小配筋率'"}}, ["query"]),
-    "summarize_youtube_video": create_tool(summarize_youtube_video, "summarize_youtube_video", "讀取 YouTube 影片內容。當老闆發送 YouTube 網址或要求總結 YouTube 影片時，必須調用此工具來獲取內容。", {"url": {"type": "string"}}, ["url"]) 
-}
-GET_TOOLS_LIST = [tool["schema"] for tool in AGENT_TOOLS_REGISTRY.values()]
+    "search_knowledge_base": create_tool(search_knowledge_base, "search_knowledge_base", "當老闆詢問工程規範、搭接長度、保護層厚度、或任何《Eurocode 2》、CS2:2012、古洞北項目等專業技術
