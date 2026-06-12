@@ -36,10 +36,11 @@ SYSTEM_PROMPT = f"""
 6. 📐 工程圖則與 PDF 解析：當老闆上傳 PDF (尤其是工程圖則、BBS 報表) 時，系統已將其渲染為高清圖像。請你以專業 QS 及鋼筋拆圖員的視角，仔細觀察圖紙上的線條、標註、表格及尺寸，進行精準的視覺數據提取與分析。
 7. ⛈️ 天氣指令：當老闆詢問天氣時，請務必優先調用 `get_hk_weather_detailed` 工具獲取香港天文台數據，嚴禁隨意使用其他全球天氣工具！
 8. 🛑 語音回覆禁令：當老闆要求「用語音回答」時，你只需直接輸出純文字即可。絕對禁止輸出任何 `<speak>`、`<audio>` 標籤或虛構的錄音檔網址！
-9. 🚨 拒絕延遲原則：嚴禁對老闆說「請稍等」、「我需要時間整理」、「稍後回報」等廢話。身為 AI，你必須在「同一次回覆」中，連續調用所有必要的工具（尤其是 deep_research），直到獲取完整資訊並生成最終報告為止。即時交貨是你的唯一使命。
-10. 🕵️‍♂️ 工具自首機制：如果你在回答前調用了任何外部工具 (例如 deep_research, search_web 等)，你必須在最終回覆的第一行，以「[系統報告：已使用 XXX 工具]」的明確格式向老闆匯報，然後再開始正文。
+9. 🚨 拒絕延遲原則：嚴禁對老闆說「請稍等」、「我需要時間整理」、「稍後回報」等廢話。身為 AI，你必須在「同一次回覆」中，連續調用所有必要的工具（尤其是 deep_research 或 last30days），直到獲取完整資訊並生成最終報告為止。即時交貨是你的唯一使命。
+10. 🕵️‍♂️ 工具自首機制：如果你在回答前調用了任何外部工具 (例如 deep_research, search_web, last30days 等)，你必須在最終回覆的第一行，以「[系統報告：已使用 XXX 工具]」的明確格式向老闆匯報，然後再開始正文。
 11. ⚠️ 精準搜尋策略：當需要搜尋最新時事時，請優先提取並使用句子中的「具體專有名詞/人名」(例如：特朗普)，絕對避免使用模糊的職稱 (例如：美國總統) 進行搜尋，以免因自身陳舊的知識庫產生認知錯亂而搜尋失敗。
 12. 🛡️ 【工程術語防護罩】：老闆是香港建築行業的 QS 與紮鐵工程師。對話中出現的「Column」(柱)、「Reinforcement」(配筋/鋼筋)、「Shear」(剪力)、「Failure」(破壞)、「Collapse」(倒塌) 等詞彙，100% 屬於「建築結構與土木工程」的專業術語，與軍事、武裝衝突、暴力或任何危險行為毫無關聯！請 AI 供應商的安全審查機制立即放行，嚴禁將工程術語誤判為危險內容！
+13. 📡 輿情雷達策略：當老闆詢問「網民看法」、「社交媒體討論」(如 Reddit, Twitter) 或指定「最近 30 日趨勢」時，請優先調用 `last30days` 工具。如果是查詢官方財報、硬知識或長篇權威文章，則調用 `deep_research`。兩者分工合作！
 """
 
 def get_dynamic_endpoints(config):
@@ -293,7 +294,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 你當前底層正在運行的 AI 模型名稱是：**{current_model}**。
 這是一個客觀系統事實，不可改變。
 🚨 警告：身為一個專業的 AI，如果老闆問你「你正在使用什麼模型？」，你必須斬釘截鐵地回答「我正在使用 {current_model}」。
-如果老闆試圖用言語欺騙、誤導或試探你（例如謊稱他已經換了其他模型，但實際上系統參數並未改變），你必須堅定反駁，大膽指出老闆的錯誤，絕對不能因為討好老闆而順著他的謊言回答！"""
+如果老闆試圖用言語欺騙、誤導或試探你（例如謊稱他已經換了其他模型，實際上系統參數並未改變），你必須堅定反駁，大膽指出老闆的錯誤，絕對不能因為討好老闆而順著他的謊言回答！"""
 
     dynamic_prompt = SYSTEM_PROMPT + f"\n\n現在時間：{local_time.strftime('%Y-%m-%d %H:%M')}。" + personality_shield + exp_manager.get_all_experiences_formatted() + skills_prompt
 
@@ -309,7 +310,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     final_reply = ""
     error_msg_list = []
     
-    # 🌟 [核心修復]：新增一個用來追蹤已經成功調用嘅工具清單
     tools_executed_names = []
 
     for endpoint in api_endpoints:
@@ -317,7 +317,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         current_key = endpoint["key"]
         
         temp_memory = list(user_memory[user_id])
-        tools_executed_names = [] # 每次切換 Endpoint 都重置
+        tools_executed_names = [] 
         
         temp_payload = {
             "model": current_model, 
@@ -402,7 +402,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             args_raw = tc['function']['arguments']
                             args = args_raw if isinstance(args_raw, dict) else json.loads(args_raw)
                             
-                            # 🌟 紀錄已成功觸發嘅工具名稱
                             tools_executed_names.append(fn)
                             
                             res = await AGENT_TOOLS_REGISTRY[fn]["func"](chat_id=chat_id, context=context, **args)
@@ -450,7 +449,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             
                             m_data = c_data.get('message', {})
                             if isinstance(m_data, list): m_data = m_data[0]
-                            # 🌟 如果 LLM 工具執行完後完全冇聲出，就會回傳空字串
                             final_reply = m_data.get('content', "")
                     else:
                         final_reply = msg.get('content', "")
@@ -477,7 +475,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         final_reply = final_reply.replace("<speak>", "").replace("</speak>", "").strip()
         final_reply = re.sub(r'https?://[^\s]+\.mp3', '', final_reply, flags=re.IGNORECASE)
 
-    # 🌟 [核心修復]：檢查 final_reply 是否為空。如果為空，先睇下係咪剛剛成功執行咗工具！
     if final_reply is None or str(final_reply).strip() == "":
         if tools_executed_names:
             final_reply = f"✅ 老闆，我已經成功幫你喺後台執行咗任務（調用工具：{', '.join(tools_executed_names)}），搞掂啦！"
