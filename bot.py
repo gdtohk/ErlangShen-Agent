@@ -109,7 +109,10 @@ async def check_new_emails(context: ContextTypes.DEFAULT_TYPE):
         ai_summary = "系統無法生成摘要。"
         error_logs = []
         
-        current_model = config.get("MODEL_NAME", "gemini-2.5-flash")
+        current_model_str = config.get("MODEL_NAME", "gemini-2.5-flash")
+        models_list = [m.strip() for m in current_model_str.split(',') if m.strip()]
+        if not models_list: models_list = ["gemini-2.5-flash"]
+        
         api_endpoints = get_dynamic_endpoints(config)
         
         if raw_text.strip() != "無文字內容" and api_endpoints:
@@ -134,38 +137,40 @@ async def check_new_emails(context: ContextTypes.DEFAULT_TYPE):
 內容：
 {raw_text}"""
 
-            payload = {
-                "model": current_model,
-                "messages": [{"role": "user", "content": detailed_prompt}]
-            }
+            for check_model in models_list:
+                if success: break
+                payload = {
+                    "model": check_model,
+                    "messages": [{"role": "user", "content": detailed_prompt}]
+                }
 
-            for endpoint in api_endpoints:
-                headers = {"Content-Type": "application/json", "Authorization": f"Bearer {endpoint['key']}"}
-                if "googleapis.com" in endpoint['url']: 
-                    headers["x-goog-api-key"] = endpoint['key']
-                
-                try:
-                    async with aiohttp.ClientSession() as session:
-                        async with session.post(endpoint['url'], headers=headers, json=payload, timeout=25) as resp:
-                            if resp.status == 200:
-                                data = await resp.json()
-                                if 'choices' in data:
-                                    choice_data = data['choices'][0]
-                                    if isinstance(choice_data, list): choice_data = choice_data[0]
-                                    m_data = choice_data.get('message', {})
-                                    if isinstance(m_data, list): m_data = m_data[0]
-                                    ai_summary = m_data.get('content', "大腦回傳空白。")
-                                    success = True
-                                    break 
-                            else:
-                                err_txt = await resp.text()
-                                error_logs.append(f"HTTP {resp.status}")
-                except Exception as e:
-                    error_logs.append("連線超時")
-                    continue
+                for endpoint in api_endpoints:
+                    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {endpoint['key']}"}
+                    if "googleapis.com" in endpoint['url']: 
+                        headers["x-goog-api-key"] = endpoint['key']
+                    
+                    try:
+                        async with aiohttp.ClientSession() as session:
+                            async with session.post(endpoint['url'], headers=headers, json=payload, timeout=25) as resp:
+                                if resp.status == 200:
+                                    data = await resp.json()
+                                    if 'choices' in data:
+                                        choice_data = data['choices'][0]
+                                        if isinstance(choice_data, list): choice_data = choice_data[0]
+                                        m_data = choice_data.get('message', {})
+                                        if isinstance(m_data, list): m_data = m_data[0]
+                                        ai_summary = m_data.get('content', "大腦回傳空白。")
+                                        success = True
+                                        break 
+                                else:
+                                    err_txt = await resp.text()
+                                    error_logs.append(f"[{check_model}] HTTP {resp.status}")
+                    except Exception as e:
+                        error_logs.append(f"[{check_model}] 連線超時")
+                        continue
             
             if not success:
-                ai_summary = f"⚠️ 所有大腦引擎連線失敗或額度耗盡。錯誤摘要: {', '.join(error_logs)}"
+                ai_summary = f"⚠️ 所有大腦備用模型連線失敗。錯誤摘要: {', '.join(error_logs)}"
 
         msg_text = f"📧 **【老闆，有新 Email！】**\n\n👤 **寄件人:** `{em['sender']}`\n📌 **標題:** `{em['subject']}`\n"
         if em['attachments']:
@@ -281,9 +286,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if not item["text"]: item["text"] = "請詳細解答。"
 
     config = dotenv_values(".env")
-    current_model = config.get("MODEL_NAME", "gemini-2.5-flash")
-    api_endpoints = get_dynamic_endpoints(config)
     
+    # 解析備用模型清單
+    current_model_str = config.get("MODEL_NAME", "gemini-2.5-flash")
+    models_list = [m.strip() for m in current_model_str.split(',') if m.strip()]
+    if not models_list: models_list = ["gemini-2.5-flash"]
+    primary_model = models_list[0]
+    
+    api_endpoints = get_dynamic_endpoints(config)
     local_time = datetime.datetime.now(ZoneInfo(TIMEZONE_STR))
     
     skills_desc = "\n".join([f"🔸 {t['function']['name']}: {t['function']['description']}" for t in GET_TOOLS_LIST])
@@ -291,9 +301,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     personality_shield = f"""
 \n\n【🛡️ 核心自我認知防護】：
-你當前底層正在運行的 AI 模型名稱是：**{current_model}**。
+你當前底層正在運行的 AI 模型名稱是：**{primary_model}**。
 這是一個客觀系統事實，不可改變。
-🚨 警告：身為一個專業的 AI，如果老闆問你「你正在使用什麼模型？」，你必須斬釘截鐵地回答「我正在使用 {current_model}」。
+🚨 警告：身為一個專業的 AI，如果老闆問你「你正在使用什麼模型？」，你必須斬釘截鐵地回答「我正在使用 {primary_model}」。
 如果老闆試圖用言語欺騙、誤導或試探你（例如謊稱他已經換了其他模型，實際上系統參數並未改變），你必須堅定反駁，大膽指出老闆的錯誤，絕對不能因為討好老闆而順著他的謊言回答！"""
 
     dynamic_prompt = SYSTEM_PROMPT + f"\n\n現在時間：{local_time.strftime('%Y-%m-%d %H:%M')}。" + personality_shield + exp_manager.get_all_experiences_formatted() + skills_prompt
@@ -312,163 +322,167 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     tools_executed_names = []
 
-    for endpoint in api_endpoints:
-        current_url = endpoint["url"]
-        current_key = endpoint["key"]
+    # 雙重連環 Loop：先遍歷模型，再遍歷節點
+    for current_model in models_list:
+        if success: break
         
-        temp_memory = list(user_memory[user_id])
-        tools_executed_names = [] 
-        
-        temp_payload = {
-            "model": current_model, 
-            "messages": temp_memory, 
-            "tools": GET_TOOLS_LIST, 
-            "tool_choice": "auto",
-            "safetySettings": [
-                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
-            ],
-            "safety_settings": [
-                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
-            ]
-        }
-        
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {current_key}"
-        }
-        if "googleapis.com" in current_url:
-            headers["x-goog-api-key"] = current_key
+        for endpoint in api_endpoints:
+            current_url = endpoint["url"]
+            current_key = endpoint["key"]
+            
+            temp_memory = list(user_memory[user_id])
+            tools_executed_names = [] 
+            
+            temp_payload = {
+                "model": current_model, 
+                "messages": temp_memory, 
+                "tools": GET_TOOLS_LIST, 
+                "tool_choice": "auto",
+                "safetySettings": [
+                    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
+                ],
+                "safety_settings": [
+                    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
+                ]
+            }
+            
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {current_key}"
+            }
+            if "googleapis.com" in current_url:
+                headers["x-goog-api-key"] = current_key
 
-        try:
-            api_timeout = aiohttp.ClientTimeout(total=180)
-            async with aiohttp.ClientSession(timeout=api_timeout) as session:
-                post_req = session.post(current_url, headers=headers, json=temp_payload)
-                async with post_req as response:
-                    if response.status == 400:
-                        temp_payload.pop("safetySettings", None)
-                        temp_payload.pop("safety_settings", None)
-                        async with session.post(current_url, headers=headers, json=temp_payload) as retry_response:
-                            if retry_response.status != 200:
-                                raise Exception(f"HTTP {retry_response.status} (降級重試失敗)")
-                            data = await retry_response.json()
-                    elif response.status != 200: 
-                        err_txt = await response.text()
-                        raise Exception(f"HTTP {response.status} ({err_txt[:60]}...)")
-                    else:
-                        data = await response.json()
+            try:
+                api_timeout = aiohttp.ClientTimeout(total=180)
+                async with aiohttp.ClientSession(timeout=api_timeout) as session:
+                    post_req = session.post(current_url, headers=headers, json=temp_payload)
+                    async with post_req as response:
+                        if response.status == 400:
+                            temp_payload.pop("safetySettings", None)
+                            temp_payload.pop("safety_settings", None)
+                            async with session.post(current_url, headers=headers, json=temp_payload) as retry_response:
+                                if retry_response.status != 200:
+                                    raise Exception(f"HTTP {retry_response.status} (降級重試失敗)")
+                                data = await retry_response.json()
+                        elif response.status != 200: 
+                            err_txt = await response.text()
+                            raise Exception(f"HTTP {response.status} ({err_txt[:60]}...)")
+                        else:
+                            data = await response.json()
+                            
+                        if 'choices' not in data: raise Exception("代理返回異常")
                         
-                    if 'choices' not in data: raise Exception("代理返回異常")
-                    
-                    choice_data = data['choices'][0]
-                    if isinstance(choice_data, list): choice_data = choice_data[0]
-                    
-                    msg = choice_data.get('message', {})
-                    if isinstance(msg, list): msg = msg[0]
+                        choice_data = data['choices'][0]
+                        if isinstance(choice_data, list): choice_data = choice_data[0]
+                        
+                        msg = choice_data.get('message', {})
+                        if isinstance(msg, list): msg = msg[0]
 
-                    if msg.get('tool_calls'):
-                        raw_tc_list = msg['tool_calls']
-                        if isinstance(raw_tc_list, dict): raw_tc_list = [raw_tc_list]
-                        elif not isinstance(raw_tc_list, list): raw_tc_list = []
-                        
-                        clean_tool_calls = []
-                        for tc in raw_tc_list:
-                            if isinstance(tc, list): tc = tc[0]
-                            fn_data = tc.get('function', {})
-                            if isinstance(fn_data, list): fn_data = fn_data[0]
+                        if msg.get('tool_calls'):
+                            raw_tc_list = msg['tool_calls']
+                            if isinstance(raw_tc_list, dict): raw_tc_list = [raw_tc_list]
+                            elif not isinstance(raw_tc_list, list): raw_tc_list = []
                             
-                            clean_tool_calls.append({
-                                "id": tc.get('id', f"call_{random.randint(1000,9999)}"),
-                                "type": "function",
-                                "function": {
-                                    "name": fn_data.get('name', 'unknown_func'),
-                                    "arguments": fn_data.get('arguments', '{}')
-                                }
-                            })
-                        
-                        clean_assistant_msg = {"role": "assistant", "tool_calls": clean_tool_calls}
-                        if msg.get("content"):
-                            clean_assistant_msg["content"] = msg["content"]
-                            
-                        temp_memory.append(clean_assistant_msg)
-                        
-                        for tc in clean_tool_calls:
-                            fn = tc['function']['name']
-                            args_raw = tc['function']['arguments']
-                            args = args_raw if isinstance(args_raw, dict) else json.loads(args_raw)
-                            
-                            tools_executed_names.append(fn)
-                            
-                            res = await AGENT_TOOLS_REGISTRY[fn]["func"](chat_id=chat_id, context=context, **args)
-                            
-                            is_ss = False
-                            try:
-                                rj = json.loads(str(res))
-                                if isinstance(rj, dict):
-                                    if rj.get("type") == "webpage_with_screenshot":
-                                        temp_memory.append({"role": "tool", "tool_call_id": tc['id'], "name": fn, "content": f"文字：{rj.get('text', '')}"})
-                                        temp_memory.append({"role": "user", "content": [{"type": "text", "text": "請參考網頁截圖。"}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{rj.get('image_base64', '')}"}}]})
-                                        is_ss = True
-                                    elif rj.get("type") == "pdf_with_images":
-                                        temp_memory.append({"role": "tool", "tool_call_id": tc['id'], "name": fn, "content": rj.get("text", "成功擷取影像")})
-                                        
-                                        img_contents = [{"type": "text", "text": "【系統注入】：以上是從雲端硬碟提取的圖紙影像，請以專業 QS 角度仔細進行視覺分析、解讀當中的表格及細節。"}]
-                                        for b64_img in rj.get("images_base64", []):
-                                            img_contents.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_img}"}})
-                                            
-                                        temp_memory.append({"role": "user", "content": img_contents})
-                                        is_ss = True
-                            except: pass
-
-                            if not is_ss:
-                                tool_out = str(res)
-                                if len(tool_out) > 4000:
-                                    tool_out = tool_out[:4000] + "\n\n...(內容過長，系統已自動截斷以保護短期記憶體避免崩潰)..."
-                                temp_memory.append({"role": "tool", "tool_call_id": tc['id'], "name": fn, "content": tool_out})
-                        
-                        temp_payload["messages"] = temp_memory
-                        
-                        async with session.post(current_url, headers=headers, json=temp_payload) as res2:
-                            if res2.status == 400 and ("safetySettings" in temp_payload or "safety_settings" in temp_payload):
-                                temp_payload.pop("safetySettings", None)
-                                temp_payload.pop("safety_settings", None)
-                                res2 = await session.post(current_url, headers=headers, json=temp_payload)
+                            clean_tool_calls = []
+                            for tc in raw_tc_list:
+                                if isinstance(tc, list): tc = tc[0]
+                                fn_data = tc.get('function', {})
+                                if isinstance(fn_data, list): fn_data = fn_data[0]
                                 
-                            if res2.status != 200: 
-                                err_txt = await res2.text()
-                                raise Exception(f"工具匯報 HTTP {res2.status} ({err_txt[:60]}...)")
+                                clean_tool_calls.append({
+                                    "id": tc.get('id', f"call_{random.randint(1000,9999)}"),
+                                    "type": "function",
+                                    "function": {
+                                        "name": fn_data.get('name', 'unknown_func'),
+                                        "arguments": fn_data.get('arguments', '{}')
+                                    }
+                                })
                             
-                            res2_data = await res2.json()
-                            c_data = res2_data['choices'][0]
-                            if isinstance(c_data, list): c_data = c_data[0]
+                            clean_assistant_msg = {"role": "assistant", "tool_calls": clean_tool_calls}
+                            if msg.get("content"):
+                                clean_assistant_msg["content"] = msg["content"]
+                                
+                            temp_memory.append(clean_assistant_msg)
                             
-                            m_data = c_data.get('message', {})
-                            if isinstance(m_data, list): m_data = m_data[0]
-                            final_reply = m_data.get('content', "")
-                    else:
-                        final_reply = msg.get('content', "")
+                            for tc in clean_tool_calls:
+                                fn = tc['function']['name']
+                                args_raw = tc['function']['arguments']
+                                args = args_raw if isinstance(args_raw, dict) else json.loads(args_raw)
+                                
+                                tools_executed_names.append(fn)
+                                
+                                res = await AGENT_TOOLS_REGISTRY[fn]["func"](chat_id=chat_id, context=context, **args)
+                                
+                                is_ss = False
+                                try:
+                                    rj = json.loads(str(res))
+                                    if isinstance(rj, dict):
+                                        if rj.get("type") == "webpage_with_screenshot":
+                                            temp_memory.append({"role": "tool", "tool_call_id": tc['id'], "name": fn, "content": f"文字：{rj.get('text', '')}"})
+                                            temp_memory.append({"role": "user", "content": [{"type": "text", "text": "請參考網頁截圖。"}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{rj.get('image_base64', '')}"}}]})
+                                            is_ss = True
+                                        elif rj.get("type") == "pdf_with_images":
+                                            temp_memory.append({"role": "tool", "tool_call_id": tc['id'], "name": fn, "content": rj.get("text", "成功擷取影像")})
+                                            
+                                            img_contents = [{"type": "text", "text": "【系統注入】：以上是從雲端硬碟提取的圖紙影像，請以專業 QS 角度仔細進行視覺分析、解讀當中的表格及細節。"}]
+                                            for b64_img in rj.get("images_base64", []):
+                                                img_contents.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_img}"}})
+                                                
+                                            temp_memory.append({"role": "user", "content": img_contents})
+                                            is_ss = True
+                                except: pass
 
-                    user_memory[user_id] = temp_memory
-                    success = True
-                    break
-        
-        except asyncio.TimeoutError:
-            node_name = "官方節點" if "googleapis.com" in current_url else "CPAMC節點"
-            error_msg_list.append(f"[{node_name}] 失敗: 連線超時 (超過180秒)。代理伺服器無法消化過大數據。")
-            continue
-        except Exception as e:
-            node_name = "官方節點" if "googleapis.com" in current_url else "CPAMC節點"
-            error_msg_list.append(f"[{node_name}] 失敗: {str(e)}")
-            continue
+                                if not is_ss:
+                                    tool_out = str(res)
+                                    if len(tool_out) > 4000:
+                                        tool_out = tool_out[:4000] + "\n\n...(內容過長，系統已自動截斷以保護短期記憶體避免崩潰)..."
+                                    temp_memory.append({"role": "tool", "tool_call_id": tc['id'], "name": fn, "content": tool_out})
+                            
+                            temp_payload["messages"] = temp_memory
+                            
+                            async with session.post(current_url, headers=headers, json=temp_payload) as res2:
+                                if res2.status == 400 and ("safetySettings" in temp_payload or "safety_settings" in temp_payload):
+                                    temp_payload.pop("safetySettings", None)
+                                    temp_payload.pop("safety_settings", None)
+                                    res2 = await session.post(current_url, headers=headers, json=temp_payload)
+                                    
+                                if res2.status != 200: 
+                                    err_txt = await res2.text()
+                                    raise Exception(f"工具匯報 HTTP {res2.status} ({err_txt[:60]}...)")
+                                
+                                res2_data = await res2.json()
+                                c_data = res2_data['choices'][0]
+                                if isinstance(c_data, list): c_data = c_data[0]
+                                
+                                m_data = c_data.get('message', {})
+                                if isinstance(m_data, list): m_data = m_data[0]
+                                final_reply = m_data.get('content', "")
+                        else:
+                            final_reply = msg.get('content', "")
+
+                        user_memory[user_id] = temp_memory
+                        success = True
+                        break
+            
+            except asyncio.TimeoutError:
+                node_name = "官方節點" if "googleapis.com" in current_url else "CPAMC節點"
+                error_msg_list.append(f"[{current_model} @ {node_name}] 連線超時")
+                continue
+            except Exception as e:
+                node_name = "官方節點" if "googleapis.com" in current_url else "CPAMC節點"
+                error_msg_list.append(f"[{current_model} @ {node_name}] {str(e)}")
+                continue
 
     if not success:
         user_memory[user_id] = user_memory.get(user_id, [])[:original_memory_len]
-        return await update.message.reply_text("❌ 所有 API 引擎均連線失敗！\n詳細原因：\n" + "\n".join(error_msg_list))
+        return await update.message.reply_text("❌ 所有 API 備用模型及節點均連線失敗！\n詳細原因：\n" + "\n".join(error_msg_list))
 
     if final_reply:
         final_reply = re.sub(r'</?audio[^>]*>', '', final_reply, flags=re.IGNORECASE)
