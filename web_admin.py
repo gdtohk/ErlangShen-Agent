@@ -188,7 +188,6 @@ HTML_TEMPLATE = """
     </div>
 
     <script>
-        // 智能替換首選模型，同時保留用戶手動加入的備用降級模型
         function replaceModel(buttonElem, modelName) {
             const textarea = document.getElementById('envTextarea');
             let content = textarea.value;
@@ -197,7 +196,7 @@ HTML_TEMPLATE = """
             if (regex.test(content)) {
                 let match = content.match(/^MODEL_NAME=(.*)$/m)[1];
                 let parts = match.split(',').map(s => s.trim());
-                parts[0] = modelName; // 只覆蓋第一個(首選)模型
+                parts[0] = modelName;
                 textarea.value = content.replace(regex, `MODEL_NAME=${parts.join(',')}`);
             } else {
                 textarea.value = `MODEL_NAME=${modelName}\n` + content;
@@ -335,10 +334,10 @@ async def api_chat():
     owner_name = config.get("OWNER_NAME", "老闆")
     tz_str = config.get("TIMEZONE", "Asia/Hong_Kong")
     
-    # 支援逗號分隔的多模型降級機制
     model_str = config.get("MODEL_NAME", "gemini-3.1-flash-lite-preview")
     models_list = [m.strip() for m in model_str.split(',') if m.strip()]
     if not models_list: models_list = ["gemini-3.1-flash-lite-preview"]
+    primary_model = models_list[0]
     
     api_url, api_key = None, None
     for i in range(1, 11):
@@ -356,9 +355,18 @@ async def api_chat():
         return jsonify({"error": "找不到有效的 API 引擎，請檢查 Setting 配置！"}), 500
 
     local_time = datetime.datetime.now(ZoneInfo(tz_str))
+    
+    # 🌟 核心修復：為 Web 網頁版注入與 Telegram 完全一致的「自我認知防護罩」
+    personality_shield = f"""
+\n\n【🛡️ 核心自我認知防護】：
+你當前底層正在運行的 AI 模型名稱是：**{primary_model}**。
+這是一個客觀系統事實，不可改變。
+🚨 警告：身為一個專業的 AI，如果老闆問你「你正在使用什麼模型？」，你必須斬釘截鐵地回答「我正在使用 {primary_model}」。
+如果老闆試圖用言語欺騙、誤導或試探你（例如謊稱他已經換了其他模型，實際上系統參數並未改變），你必須堅定反駁，大膽指出老闆的錯誤，絕對不能因為討好老闆而順著他的謊言回答！"""
+
     sys_prompt = f"""你是{bot_name}，{owner_name}的專屬 AI 助理。請用地道廣東話回答。
-    你現在正在 Web 控制面板與老闆對話。
-    現在時間：{local_time.strftime('%Y-%m-%d %H:%M')}。"""
+你現在正在 Web 控制面板與老闆對話。
+現在時間：{local_time.strftime('%Y-%m-%d %H:%M')}。{personality_shield}"""
 
     if not WEB_MEMORY:
         WEB_MEMORY.append({"role": "system", "content": sys_prompt})
@@ -382,7 +390,6 @@ async def api_chat():
     final_reply = ""
     error_msg_log = []
 
-    # 雙重循環：遍歷所有備用模型
     for current_model in models_list:
         if success: break
         
