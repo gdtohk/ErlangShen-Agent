@@ -34,14 +34,9 @@ HTML_TEMPLATE = """
         
         /* 聊天室 UI */
         .chat-container { max-width: 900px; margin: 20px auto; width: 95%; flex: 1; display: flex; flex-direction: column; background: white; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); overflow: hidden; position: relative; }
-        
-        /* --- 修改頂部 Header 為相對定位，方便容納左邊按鈕 --- */
         .chat-header { position: relative; background: #1a1a1a; color: white; padding: 15px; display: flex; align-items: center; justify-content: center; gap: 15px; font-weight: bold; }
-        
-        /* --- 新增：頂部左上角 Setting 按鈕 --- */
         .header-setting-btn { position: absolute; left: 20px; background: #333; color: #ccc; border: 1px solid #555; border-radius: 6px; padding: 6px 12px; font-size: 13px; cursor: pointer; transition: 0.3s; display: flex; align-items: center; gap: 5px; }
         .header-setting-btn:hover { background: #555; color: white; border-color: #777; }
-
         .chat-box { flex: 1; padding: 20px; overflow-y: auto; background: #fafafa; display: flex; flex-direction: column; gap: 15px; }
         .message { max-width: 75%; padding: 12px 18px; border-radius: 8px; line-height: 1.5; font-size: 15px; word-wrap: break-word; }
         .msg-user { background: #1a73e8; color: white; align-self: flex-end; border-bottom-right-radius: 0; }
@@ -82,13 +77,12 @@ HTML_TEMPLATE = """
             {% endfor %}
             </div>
             <script>
-                // 🌟 新增：2秒後自動淡出並移除提示橫幅
                 setTimeout(function() {
                     var flashEl = document.getElementById('flash-container');
                     if (flashEl) {
                         flashEl.style.transition = 'opacity 0.5s ease';
                         flashEl.style.opacity = '0';
-                        setTimeout(() => flashEl.remove(), 500); // 動畫播完後移除元素
+                        setTimeout(() => flashEl.remove(), 500); 
                     }
                 }, 2000);
             </script>
@@ -136,13 +130,23 @@ HTML_TEMPLATE = """
                 <h3>📝 編輯 .env 設定檔：</h3>
                 
                 <div class="model-selector">
-                    <strong style="color: #444; font-size: 15px;">✨ 快速切換模型 (點擊自動替換下方文字)：</strong>
+                    <strong style="color: #444; font-size: 15px;">✨ 快速切換首選模型 (點擊替換)<br>
+                    <span style="font-size:13px; color:#1a73e8;">💡 支援防塞車降級機制：於下方編輯區的 MODEL_NAME 欄位，用英文逗號加入後備模型。例如: <code>gemini-2.5-flash,agnes-2.0-flash</code></span></strong>
                     
                     <div class="model-category">🧠 GPT / Claude 系列</div>
                     <div class="model-tags">
                         <span class="model-tag" onclick="replaceModel(this, 'gpt-oss-120b-medium')">gpt-oss-120b-medium</span>
                         <span class="model-tag" onclick="replaceModel(this, 'claude-opus-4-6-thinking')">claude-opus-4-6-thinking</span>
                         <span class="model-tag" onclick="replaceModel(this, 'claude-sonnet-4-6')">claude-sonnet-4-6</span>
+                    </div>
+
+                    <div class="model-category">🟣 Agnes AI 系列 (新增)</div>
+                    <div class="model-tags">
+                        <span class="model-tag" onclick="replaceModel(this, 'agnes-2.0-flash')">agnes-2.0-flash</span>
+                        <span class="model-tag" onclick="replaceModel(this, 'agnes-image-2.0-flash')">agnes-image-2.0-flash</span>
+                        <span class="model-tag" onclick="replaceModel(this, 'agnes-1.5-flash')">agnes-1.5-flash</span>
+                        <span class="model-tag" onclick="replaceModel(this, 'agnes-image-2.1-flash')">agnes-image-2.1-flash</span>
+                        <span class="model-tag" onclick="replaceModel(this, 'agnes-video-v2.0')">agnes-video-v2.0</span>
                     </div>
 
                     <div class="model-category">✨ Gemini 系列</div>
@@ -184,21 +188,23 @@ HTML_TEMPLATE = """
     </div>
 
     <script>
-        // 替換模型邏輯
+        // 智能替換首選模型，同時保留用戶手動加入的備用降級模型
         function replaceModel(buttonElem, modelName) {
             const textarea = document.getElementById('envTextarea');
             let content = textarea.value;
-            // 尋找並替換 MODEL_NAME=... 這一行
             const regex = /^MODEL_NAME=.*$/m;
+            
             if (regex.test(content)) {
-                textarea.value = content.replace(regex, `MODEL_NAME=${modelName}`);
+                let match = content.match(/^MODEL_NAME=(.*)$/m)[1];
+                let parts = match.split(',').map(s => s.trim());
+                parts[0] = modelName; // 只覆蓋第一個(首選)模型
+                textarea.value = content.replace(regex, `MODEL_NAME=${parts.join(',')}`);
             } else {
                 textarea.value = `MODEL_NAME=${modelName}\n` + content;
             }
             
-            // 視覺回饋：變色加打勾
             const originalText = buttonElem.innerText;
-            buttonElem.innerText = '✅ 已切換';
+            buttonElem.innerText = '✅ 已切換首選';
             buttonElem.style.background = '#e8f0fe';
             buttonElem.style.color = '#1a73e8';
             buttonElem.style.borderColor = '#1a73e8';
@@ -328,7 +334,11 @@ async def api_chat():
     bot_name = config.get("BOT_NAME", "二郎神")
     owner_name = config.get("OWNER_NAME", "老闆")
     tz_str = config.get("TIMEZONE", "Asia/Hong_Kong")
-    model = config.get("MODEL_NAME", "gemini-3.1-flash-lite-preview")
+    
+    # 支援逗號分隔的多模型降級機制
+    model_str = config.get("MODEL_NAME", "gemini-3.1-flash-lite-preview")
+    models_list = [m.strip() for m in model_str.split(',') if m.strip()]
+    if not models_list: models_list = ["gemini-3.1-flash-lite-preview"]
     
     api_url, api_key = None, None
     for i in range(1, 11):
@@ -364,66 +374,83 @@ async def api_chat():
     forbidden_tools = ['set_reminder', 'schedule_daily_weather']
     web_tools = [t for t in GET_TOOLS_LIST if t['function']['name'] not in forbidden_tools]
 
-    payload = {
-        "model": model,
-        "messages": WEB_MEMORY,
-        "tools": web_tools,
-        "tool_choice": "auto"
-    }
-
     headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {api_key}'}
     if 'googleapis.com' in api_url:
         headers['x-goog-api-key'] = api_key
 
-    try:
-        async with aiohttp.ClientSession() as http_session:
-            async with http_session.post(api_url, headers=headers, json=payload) as resp:
-                data = await resp.json()
-                msg = data['choices'][0]['message']
+    success = False
+    final_reply = ""
+    error_msg_log = []
 
-                if msg.get('tool_calls'):
-                    temp_memory = list(WEB_MEMORY)
-                    temp_memory.append(msg)
-                    
-                    # 🌟 [核心修復]：Web 端同步加入已執行工具追蹤
-                    tools_executed_names = []
-                    
-                    for tc in msg['tool_calls']:
-                        fn_name = tc['function']['name']
-                        args_raw = tc['function']['arguments']
-                        args = args_raw if isinstance(args_raw, dict) else json.loads(args_raw)
-                        
-                        tools_executed_names.append(fn_name)
-                        
-                        try:
-                            if fn_name in AGENT_TOOLS_REGISTRY:
-                                res = await AGENT_TOOLS_REGISTRY[fn_name]["func"](chat_id=0, context=None, **args)
-                                temp_memory.append({"role": "tool", "tool_call_id": tc['id'], "name": fn_name, "content": str(res)})
-                        except Exception as e:
-                            temp_memory.append({"role": "tool", "tool_call_id": tc['id'], "name": fn_name, "content": f"工具執行失敗: {str(e)}"})
+    # 雙重循環：遍歷所有備用模型
+    for current_model in models_list:
+        if success: break
+        
+        payload = {
+            "model": current_model,
+            "messages": WEB_MEMORY,
+            "tools": web_tools,
+            "tool_choice": "auto"
+        }
 
-                    payload["messages"] = temp_memory
-                    async with http_session.post(api_url, headers=headers, json=payload) as resp2:
-                        data2 = await resp2.json()
+        try:
+            async with aiohttp.ClientSession() as http_session:
+                async with http_session.post(api_url, headers=headers, json=payload) as resp:
+                    if resp.status != 200:
+                        err_txt = await resp.text()
+                        raise Exception(f"HTTP {resp.status} ({err_txt[:60]}...)")
                         
-                        # 🌟 [核心修復]：如果 LLM 回覆空白，直接用已執行工具清單頂上！
-                        final_reply = data2['choices'][0]['message'].get('content', '')
-                        if not final_reply or str(final_reply).strip() == "":
-                            if tools_executed_names:
-                                final_reply = f"✅ 老闆，任務已在後台完成（已調用工具：{', '.join(tools_executed_names)}）。"
-                            else:
-                                final_reply = "⚠️ [系統攔截] 大腦回傳空白內容。"
-                                
-                        WEB_MEMORY.append({"role": "assistant", "content": final_reply})
-                        return jsonify({"reply": final_reply})
-                else:
-                    reply = msg.get('content', "✅ 已收到指令。")
-                    WEB_MEMORY.append({"role": "assistant", "content": reply})
-                    return jsonify({"reply": reply})
-                    
-    except Exception as e:
+                    data = await resp.json()
+                    msg = data['choices'][0]['message']
+
+                    if msg.get('tool_calls'):
+                        temp_memory = list(WEB_MEMORY)
+                        temp_memory.append(msg)
+                        
+                        tools_executed_names = []
+                        for tc in msg['tool_calls']:
+                            fn_name = tc['function']['name']
+                            args_raw = tc['function']['arguments']
+                            args = args_raw if isinstance(args_raw, dict) else json.loads(args_raw)
+                            
+                            tools_executed_names.append(fn_name)
+                            try:
+                                if fn_name in AGENT_TOOLS_REGISTRY:
+                                    res = await AGENT_TOOLS_REGISTRY[fn_name]["func"](chat_id=0, context=None, **args)
+                                    temp_memory.append({"role": "tool", "tool_call_id": tc['id'], "name": fn_name, "content": str(res)})
+                            except Exception as e:
+                                temp_memory.append({"role": "tool", "tool_call_id": tc['id'], "name": fn_name, "content": f"工具執行失敗: {str(e)}"})
+
+                        payload["messages"] = temp_memory
+                        async with http_session.post(api_url, headers=headers, json=payload) as resp2:
+                            if resp2.status != 200:
+                                raise Exception(f"工具返回失敗 HTTP {resp2.status}")
+                            
+                            data2 = await resp2.json()
+                            final_reply = data2['choices'][0]['message'].get('content', '')
+                            
+                            if not final_reply or str(final_reply).strip() == "":
+                                if tools_executed_names:
+                                    final_reply = f"✅ 老闆，任務已在後台完成（已調用工具：{', '.join(tools_executed_names)}）。"
+                                else:
+                                    final_reply = "⚠️ [系統攔截] 大腦回傳空白內容。"
+                                    
+                            WEB_MEMORY.append({"role": "assistant", "content": final_reply})
+                            success = True
+                            return jsonify({"reply": final_reply})
+                    else:
+                        reply = msg.get('content', "✅ 已收到指令。")
+                        WEB_MEMORY.append({"role": "assistant", "content": reply})
+                        success = True
+                        return jsonify({"reply": reply})
+                        
+        except Exception as e:
+            error_msg_log.append(f"[{current_model}] {str(e)}")
+            continue
+
+    if not success:
         WEB_MEMORY.pop() 
-        return jsonify({"error": f"連線或執行失敗: {str(e)}"}), 500
+        return jsonify({"error": f"所有備用模型均連線失敗: {' | '.join(error_msg_log)}"}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
