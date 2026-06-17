@@ -8,6 +8,8 @@ import base64
 import urllib.parse
 import os
 import re
+import datetime # 🌟 新增：處理定時任務的時間
+from zoneinfo import ZoneInfo # 🌟 新增：處理香港時區
 from youtube_transcript_api import YouTubeTranscriptApi # 🌟 引入 YouTube 字幕提取神器
 import yt_dlp # 🌟 新增：引入 X 光透視神器
 from experience_manager import exp_manager  # 🌟 新增：引入經驗大腦
@@ -308,11 +310,119 @@ async def save_agent_experience(chat_id, context, content: str):
     print(f"🧠 [Debug] 正在將經驗寫入大腦：{content}")
     return exp_manager.add_experience(content)
 
+# ================= 萬能自定義定時任務排程器 =================
+async def schedule_custom_task(chat_id, context, hour: int, minute: int, task_prompt: str, **kwargs):
+    """將任意任務動態加入系統背景排程器，時間一到自動喚醒大腦執行"""
+    print(f"⏰ [Debug] 準備設定定時任務: {hour:02d}:{minute:02d} - {task_prompt}")
+    try:
+        # 定義時間到了之後要執行的背景工作
+        async def custom_task_job(ctx):
+            # 1. 任務啟動通知老闆
+            await ctx.bot.send_message(chat_id=chat_id, text=f"⏰ 【定時任務啟動】：正在自動為老闆執行「{task_prompt}」...")
+            
+            # 2. 獲取最新大腦配置
+            from dotenv import dotenv_values
+            config = dotenv_values(".env")
+            
+            api_url, api_key = None, None
+            for i in range(1, 11):
+                u = config.get(f"API_URL_{i}")
+                k = config.get(f"API_KEY_{i}")
+                if u and k:
+                    api_url, api_key = u, k
+                    break
+            if not api_url:
+                api_url = config.get("API_URL_3")
+                api_key = config.get("API_KEY_3")
+
+            model_str = config.get("MODEL_NAME", "gemini-2.5-flash")
+            models_list = [m.strip() for m in model_str.split(',') if m.strip()]
+            model = models_list[0] if models_list else "gemini-2.5-flash"
+            
+            tz_str = config.get("TIMEZONE", "Asia/Hong_Kong")
+            local_time = datetime.datetime.now(ZoneInfo(tz_str))
+            
+            # 3. 準備提供給背景任務的工具 (挑選適合查資料的工具給定時任務)
+            safe_tools = [
+                AGENT_TOOLS_REGISTRY["search_web"]["schema"],
+                AGENT_TOOLS_REGISTRY["browse_website"]["schema"],
+                AGENT_TOOLS_REGISTRY["scrape_webpage_text"]["schema"],
+                AGENT_TOOLS_REGISTRY["last30days"]["schema"],
+                AGENT_TOOLS_REGISTRY["deep_research"]["schema"]
+            ]
+            
+            messages = [
+                {"role": "system", "content": f"你是老闆的專屬 AI 助理。現在時間：{local_time.strftime('%Y-%m-%d %H:%M')}。\n這是一個系統自動觸發的「每日定時任務」。\n請你立刻使用合適的工具完成以下任務，並用廣東話整理出最終專業報告匯報給老闆。\n【老闆的任務指令】：{task_prompt}"},
+                {"role": "user", "content": "時間到了，請立即執行上述定時任務並給出最終報告。"}
+            ]
+            
+            payload = {
+                "model": model,
+                "messages": messages,
+                "tools": safe_tools,
+                "tool_choice": "auto"
+            }
+            
+            headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
+            if "googleapis.com" in api_url:
+                headers["x-goog-api-key"] = api_key
+            
+            # 4. 執行大腦推理與工具調用 (Mini-Loop)
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(api_url, headers=headers, json=payload, timeout=90) as resp:
+                        if resp.status != 200:
+                            raise Exception(f"HTTP {resp.status}")
+                        data = await resp.json()
+                        msg = data['choices'][0]['message']
+                        
+                        if msg.get('tool_calls'):
+                            messages.append(msg)
+                            for tc in msg['tool_calls']:
+                                fn_name = tc['function']['name']
+                                args = json.loads(tc['function']['arguments'])
+                                try:
+                                    res = await AGENT_TOOLS_REGISTRY[fn_name]["func"](chat_id=chat_id, context=ctx, **args)
+                                    messages.append({"role": "tool", "tool_call_id": tc['id'], "name": fn_name, "content": str(res)})
+                                except Exception as e:
+                                    messages.append({"role": "tool", "tool_call_id": tc['id'], "name": fn_name, "content": f"失敗: {e}"})
+                            
+                            payload["messages"] = messages
+                            async with session.post(api_url, headers=headers, json=payload, timeout=90) as resp2:
+                                data2 = await resp2.json()
+                                final_reply = data2['choices'][0]['message'].get('content', '')
+                        else:
+                            final_reply = msg.get('content', "")
+                            
+                        if final_reply and str(final_reply).strip() != "":
+                            await ctx.bot.send_message(chat_id=chat_id, text=f"📋 【定時任務最終報告】：\n\n{final_reply}")
+                        else:
+                            await ctx.bot.send_message(chat_id=chat_id, text="⚠️ 報告老闆，定時任務已完成，但大腦未有生成文字報告。")
+                            
+            except Exception as e:
+                await ctx.bot.send_message(chat_id=chat_id, text=f"❌ 定時任務「{task_prompt}」執行時發生錯誤：{str(e)}")
+
+        # 5. 將任務加入系統排程器 (Job Queue)
+        hk_tz = ZoneInfo("Asia/Hong_Kong")
+        target_time = datetime.time(hour=int(hour), minute=int(minute), tzinfo=hk_tz)
+        
+        job_name = f"custom_job_{chat_id}_{hour}_{minute}"
+        context.job_queue.run_daily(
+            custom_task_job,
+            time=target_time,
+            chat_id=chat_id,
+            name=job_name
+        )
+        
+        return f"✅ 成功！已經幫老闆設定咗每日 {int(hour):02d}:{int(minute):02d} 自動執行任務：「{task_prompt}」。我到時會自動去搜集資料並匯報！"
+    except Exception as e:
+        return f"❌ 設定自定義定時任務失敗：{str(e)}"
+
 # ================= 工具創建助手 =================
 def create_tool(func, name, desc, params, required):
     return {"func": func, "schema": {"type": "function", "function": {"name": name, "description": desc, "parameters": {"type": "object", "properties": params, "required": required}}}}
 
-# ================= 技能註冊表 (終極隱形斗篷 + YouTube 復活版) =================
+# ================= 技能註冊表 (終極隱形斗篷 + YouTube 復活版 + 萬能定時器) =================
 AGENT_TOOLS_REGISTRY = {
     "calc_rebar_weight": create_tool(calc_rebar_weight, "calc_rebar_weight", "計算鋼筋重量。", {"d": {"type": "number"}, "length": {"type": "number"}, "qty": {"type": "number"}}, ["d", "length"]),
     "get_hk_weather_detailed": create_tool(get_hk_weather_detailed, "get_hk_weather_detailed", "獲取香港最新天氣預報。", {}, []),
@@ -327,17 +437,22 @@ AGENT_TOOLS_REGISTRY = {
     "generate_rebar_excel": create_tool(generate_rebar_excel, "generate_rebar_excel", "生成 Excel 報表。", {"report_name": {"type": "string"}, "records": {"type": "array", "items": {"type": "object", "properties": {"d": {"type": "number"}, "length": {"type": "number"}, "qty": {"type": "number"}, "weight": {"type": "number"}}, "required": ["d", "length", "qty", "weight"]}}}, ["report_name", "records"]),
     "browse_website": create_tool(browse_website_with_playwright, "browse_website", "瀏覽網頁並獲取實時截圖分析。", {"url": {"type": "string"}}, ["url"]),
     "scrape_webpage_text": create_tool(read_webpage_with_jina, "scrape_webpage_text", "使用 Jina API 極速讀取網頁純文字內容。適合用來閱讀新聞、文章、文檔等大量文字嘅網址。", {"url": {"type": "string"}}, ["url"]),
-    "save_agent_experience": create_tool(save_agent_experience, "save_agent_experience", "儲存重要的工作經驗、規範或老闆的糾正指示到長期記憶庫中。當老闆要求你『記住』某事時調用。", {"content": {"type": "string"}}, ["content"]), # 🌟 新增：註冊記憶工具
-    "deep_research": create_tool(perform_deep_research, "deep_research", "針對複雜問題進行深度研究與分析。當老闆要求寫報告、做詳細對比、或搜查多個網頁資料時，必須使用此工具一炮過獲取完整數據。", {"query": {"type": "string"}}, ["query"]), # 🌟 新增：深度研究工具
-    "last30days": create_tool(perform_last30days_research, "last30days", "全網輿情與趨勢雷達。當老闆詢問外國網民看法、社交媒體討論(如 Reddit, Hacker News, Twitter, YouTube) 或指定「最近 30 日趨勢/評價」時，必須調用此工具。", {"topic": {"type": "string"}}, ["topic"]), # 🌟 新增：輿情雷達
+    "save_agent_experience": create_tool(save_agent_experience, "save_agent_experience", "儲存重要的工作經驗、規範或老闆的糾正指示到長期記憶庫中。當老闆要求你『記住』某事時調用。", {"content": {"type": "string"}}, ["content"]), 
+    "deep_research": create_tool(perform_deep_research, "deep_research", "針對複雜問題進行深度研究與分析。當老闆要求寫報告、做詳細對比、或搜查多個網頁資料時，必須使用此工具一炮過獲取完整數據。", {"query": {"type": "string"}}, ["query"]),
+    "last30days": create_tool(perform_last30days_research, "last30days", "全網輿情與趨勢雷達。當老闆詢問外國網民看法、社交媒體討論(如 Reddit, Hacker News, Twitter, YouTube) 或指定「最近 30 日趨勢/評價」時，必須調用此工具。", {"topic": {"type": "string"}}, ["topic"]), 
     "manage_my_drive": create_tool(manage_my_drive, "manage_my_drive", "瀏覽掛載的 Google Drive 資料夾，或提取當中的 PDF/Excel/CSV/Txt 文件內容。當老闆要求讀取雲端硬碟(my_drive)裡的文件時必須調用此工具。", {
         "path": {"type": "string", "description": "文件或資料夾的相對路徑。留空代表根目錄。例如：'Kwu Tung North' 或 '落标扎铁要求.pdf'"},
         "mode": {"type": "string", "description": "【核心指令】：'text' 代表純文字提取（極速，適合文字章程）；'visual' 代表將圖紙轉化為圖片供視覺分析（極致細節，適合含有工程圖則 Drawings、大樣圖、搭接長度表、表格等情況）。若老闆指示「看圖」、「視覺」或文件含有圖紙表格，必須使用 'visual'。", "enum": ["text", "visual"]}
     }, ["path"]), 
-    
-    # 🌟 [本次最新修復]：刪除帶有敏感軍事字的英文說明，改用純中文，防止自爆！
     "build_knowledge_from_drive": create_tool(build_knowledge_from_drive, "build_knowledge_from_drive", "全自動讀取掛載的 Google Drive 雲端硬碟中的 Standard_Docs 資料夾，將裡面的所有工程規範 PDF 轉化為向量大腦記憶庫。當老闆要求『讀取雲端新文件』或『更新知識庫』時調用。", {}, []),
     "search_knowledge_base": create_tool(search_knowledge_base, "search_knowledge_base", "當老闆詢問工程規範、搭接長度、保護層厚度、或任何《Eurocode 2》、CS2:2012、古洞北項目等專業技術問題時，必須調用此工具從超級大腦知識庫中檢索精準條文作答。", {"query": {"type": "string", "description": "要檢索的具體問題或關鍵字，例如 'C35/45 石屎的搭接長度' 或 '柱的最小配筋率'"}}, ["query"]),
-    "summarize_youtube_video": create_tool(summarize_youtube_video, "summarize_youtube_video", "讀取 YouTube 影片內容。當老闆發送 YouTube 網址或要求總結 YouTube 影片時，必須調用此工具來獲取內容。", {"url": {"type": "string"}}, ["url"]) 
+    "summarize_youtube_video": create_tool(summarize_youtube_video, "summarize_youtube_video", "讀取 YouTube 影片內容。當老闆發送 YouTube 網址或要求總結 YouTube 影片時，必須調用此工具來獲取內容。", {"url": {"type": "string"}}, ["url"]),
+    
+    # 🌟 [本次新增]：萬能自定義定時任務排程器
+    "schedule_custom_task": create_tool(schedule_custom_task, "schedule_custom_task", "設定一個每日定時自動執行的任務。當老闆要求你「每天定時」去查閱網站、獲取新聞、或執行特定動作時（例如：每天下午1點看GitHub熱門），必須調用此工具將任務加入系統排程器。", {
+        "hour": {"type": "integer", "description": "小時 (0-23，香港時間)"},
+        "minute": {"type": "integer", "description": "分鐘 (0-59)"},
+        "task_prompt": {"type": "string", "description": "要執行的具體任務指令，例如 '去 github.com/trending 截圖並分析熱門項目' 或 '搜尋明報頭條並總結'"}
+    }, ["hour", "minute", "task_prompt"])
 }
 GET_TOOLS_LIST = [tool["schema"] for tool in AGENT_TOOLS_REGISTRY.values()]
