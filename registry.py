@@ -310,7 +310,7 @@ async def save_agent_experience(chat_id, context, content: str):
     print(f"🧠 [Debug] 正在將經驗寫入大腦：{content}")
     return exp_manager.add_experience(content)
 
-# ================= 萬能自定義定時任務排程器 =================
+# ================= 萬能自定義定時任務排程器 (🌟 終極視覺修復版) =================
 async def schedule_custom_task(chat_id, context, hour: int, minute: int, task_prompt: str, **kwargs):
     """將任意任務動態加入系統背景排程器，時間一到自動喚醒大腦執行"""
     print(f"⏰ [Debug] 準備設定定時任務: {hour:02d}:{minute:02d} - {task_prompt}")
@@ -342,7 +342,7 @@ async def schedule_custom_task(chat_id, context, hour: int, minute: int, task_pr
             tz_str = config.get("TIMEZONE", "Asia/Hong_Kong")
             local_time = datetime.datetime.now(ZoneInfo(tz_str))
             
-            # 3. 準備提供給背景任務的工具 (挑選適合查資料的工具給定時任務)
+            # 3. 準備提供給背景任務的工具
             safe_tools = [
                 AGENT_TOOLS_REGISTRY["search_web"]["schema"],
                 AGENT_TOOLS_REGISTRY["browse_website"]["schema"],
@@ -367,7 +367,7 @@ async def schedule_custom_task(chat_id, context, hour: int, minute: int, task_pr
             if "googleapis.com" in api_url:
                 headers["x-goog-api-key"] = api_key
             
-            # 4. 執行大腦推理與工具調用 (Mini-Loop)
+            # 4. 執行大腦推理與工具調用 (包含完美處理圖片截圖)
             try:
                 async with aiohttp.ClientSession() as session:
                     async with session.post(api_url, headers=headers, json=payload, timeout=90) as resp:
@@ -381,11 +381,37 @@ async def schedule_custom_task(chat_id, context, hour: int, minute: int, task_pr
                             for tc in msg['tool_calls']:
                                 fn_name = tc['function']['name']
                                 args = json.loads(tc['function']['arguments'])
+                                
                                 try:
                                     res = await AGENT_TOOLS_REGISTRY[fn_name]["func"](chat_id=chat_id, context=ctx, **args)
-                                    messages.append({"role": "tool", "tool_call_id": tc['id'], "name": fn_name, "content": str(res)})
+                                    
+                                    # 🌟 核心圖像解碼修復區：完美鏡像 bot.py 的圖像處理邏輯
+                                    is_ss = False
+                                    try:
+                                        rj = json.loads(str(res))
+                                        if isinstance(rj, dict):
+                                            if rj.get("type") == "webpage_with_screenshot":
+                                                messages.append({"role": "tool", "tool_call_id": tc['id'], "name": fn_name, "content": f"文字內容：{rj.get('text', '')}"})
+                                                messages.append({"role": "user", "content": [{"type": "text", "text": "請參考網頁截圖進行視覺分析。"}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{rj.get('image_base64', '')}"}}]})
+                                                is_ss = True
+                                            elif rj.get("type") == "pdf_with_images":
+                                                messages.append({"role": "tool", "tool_call_id": tc['id'], "name": fn_name, "content": rj.get("text", "成功擷取")})
+                                                img_contents = [{"type": "text", "text": "請參考提取的影像進行分析。"}]
+                                                for b64_img in rj.get("images_base64", []):
+                                                    img_contents.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_img}"}})
+                                                messages.append({"role": "user", "content": img_contents})
+                                                is_ss = True
+                                    except:
+                                        pass
+                                        
+                                    if not is_ss:
+                                        tool_out = str(res)
+                                        if len(tool_out) > 4000:
+                                            tool_out = tool_out[:4000] + "\n\n...(內容過長，系統已自動截斷以保護記憶體避免崩潰)..."
+                                        messages.append({"role": "tool", "tool_call_id": tc['id'], "name": fn_name, "content": tool_out})
+                                        
                                 except Exception as e:
-                                    messages.append({"role": "tool", "tool_call_id": tc['id'], "name": fn_name, "content": f"失敗: {e}"})
+                                    messages.append({"role": "tool", "tool_call_id": tc['id'], "name": fn_name, "content": f"工具執行失敗: {str(e)}"})
                             
                             payload["messages"] = messages
                             async with session.post(api_url, headers=headers, json=payload, timeout=90) as resp2:
