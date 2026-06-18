@@ -3,7 +3,6 @@ import os, json, asyncio, aiohttp, datetime
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv, dotenv_values
 
-# 嘗試載入 Telegram 嘅工具庫 (防錯機制)
 try:
     from registry import GET_TOOLS_LIST, AGENT_TOOLS_REGISTRY
 except ImportError:
@@ -17,7 +16,6 @@ app.secret_key = os.getenv("FLASK_SECRET_KEY", "erlangshen_super_secret")
 ENV_PATH = ".env"
 ADMIN_PASSWORD = os.getenv("WEB_ADMIN_PASSWORD", "Admin_Not_Set_999") 
 
-# 網頁版專屬記憶體
 WEB_MEMORY = []
 MAX_HISTORY = 10
 
@@ -32,7 +30,6 @@ HTML_TEMPLATE = """
         .login-container { max-width: 400px; margin: 100px auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
         h1, h3 { color: #1a73e8; text-align: center; }
         
-        /* 聊天室 UI */
         .chat-container { max-width: 900px; margin: 20px auto; width: 95%; flex: 1; display: flex; flex-direction: column; background: white; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); overflow: hidden; position: relative; }
         .chat-header { position: relative; background: #1a1a1a; color: white; padding: 15px; display: flex; align-items: center; justify-content: center; gap: 15px; font-weight: bold; }
         .header-setting-btn { position: absolute; left: 20px; background: #333; color: #ccc; border: 1px solid #555; border-radius: 6px; padding: 6px 12px; font-size: 13px; cursor: pointer; transition: 0.3s; display: flex; align-items: center; gap: 5px; }
@@ -46,20 +43,17 @@ HTML_TEMPLATE = """
         .chat-input-area button { padding: 12px 24px; font-size: 15px; font-weight: bold; background: #34a853; color: white; border: none; border-radius: 6px; cursor: pointer; transition: 0.3s; }
         .chat-input-area button:hover { background: #2b8a44; }
 
-        /* Modal 設定視窗 */
         .modal { display: {% if show_settings %}block{% else %}none{% endif %}; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); overflow: auto; }
         .modal-content { background-color: #fff; margin: 5% auto; padding: 30px; border-radius: 12px; width: 90%; max-width: 800px; position: relative; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
         .close-btn { position: absolute; right: 20px; top: 15px; font-size: 28px; font-weight: bold; color: #aaa; cursor: pointer; }
         .close-btn:hover { color: black; }
         
-        /* 模型切換標籤樣式 */
         .model-selector { margin-bottom: 15px; background: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0; }
         .model-tags { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 5px; margin-bottom: 15px;}
         .model-tag { background: white; border: 1px solid #ccc; padding: 8px 14px; border-radius: 20px; font-size: 14px; cursor: pointer; color: #333; transition: 0.2s; font-family: monospace; }
         .model-tag:hover { background: #e8f0fe; border-color: #1a73e8; color: #1a73e8; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
         .model-category { font-size: 13px; color: #666; font-weight: bold; margin-top: 10px; margin-bottom: 5px; border-left: 3px solid #1a73e8; padding-left: 8px; }
         
-        /* 表單元素 */
         textarea { width: 100%; height: 300px; font-family: 'Courier New', Courier, monospace; font-size: 14px; padding: 15px; border: 1px solid #ccc; border-radius: 8px; box-sizing: border-box; }
         input[type="password"], input[type="text"] { width: 100%; padding: 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; margin-bottom: 15px; }
         .btn-save { background-color: #34a853; color: white; padding: 12px; width: 100%; border: none; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 15px; }
@@ -356,7 +350,6 @@ async def api_chat():
 
     local_time = datetime.datetime.now(ZoneInfo(tz_str))
     
-    # 🌟 核心修復：為 Web 網頁版注入與 Telegram 完全一致的「自我認知防護罩」
     personality_shield = f"""
 \n\n【🛡️ 核心自我認知防護】：
 你當前底層正在運行的 AI 模型名稱是：**{primary_model}**。
@@ -364,7 +357,6 @@ async def api_chat():
 🚨 警告：身為一個專業的 AI，如果老闆問你「你正在使用什麼模型？」，你必須斬釘截鐵地回答「我正在使用 {primary_model}」。
 如果老闆試圖用言語欺騙、誤導或試探你（例如謊稱他已經換了其他模型，實際上系統參數並未改變），你必須堅定反駁，大膽指出老闆的錯誤，絕對不能因為討好老闆而順著他的謊言回答！"""
 
-    # 🌟 終極同步：將 bot.py 的 13 條真理指令（包含防走數機制）完美移植到 Web 版
     sys_prompt = f"""你是{bot_name}，{owner_name}的專屬 AI 助理。請用地道廣東話回答。
 你具備語音對話、視覺圖片分析、文件解析 (PDF/Excel)、網頁瀏覽與截圖功能。
 你現在正在 Web 控制面板與老闆對話。
@@ -420,14 +412,16 @@ async def api_chat():
         }
 
         try:
+            # 🌟 [核心修復]：加入 3 次 Agent 思考循環
             async with aiohttp.ClientSession() as http_session:
-                async with http_session.post(api_url, headers=headers, json=payload) as resp:
-                    if resp.status != 200:
-                        err_txt = await resp.text()
-                        raise Exception(f"HTTP {resp.status} ({err_txt[:60]}...)")
-                        
-                    data = await resp.json()
-                    msg = data['choices'][0]['message']
+                for _ in range(3):
+                    async with http_session.post(api_url, headers=headers, json=payload) as resp:
+                        if resp.status != 200:
+                            err_txt = await resp.text()
+                            raise Exception(f"HTTP {resp.status} ({err_txt[:60]}...)")
+                            
+                        data = await resp.json()
+                        msg = data['choices'][0]['message']
 
                     if msg.get('tool_calls'):
                         temp_memory = list(WEB_MEMORY)
@@ -448,27 +442,21 @@ async def api_chat():
                                 temp_memory.append({"role": "tool", "tool_call_id": tc['id'], "name": fn_name, "content": f"工具執行失敗: {str(e)}"})
 
                         payload["messages"] = temp_memory
-                        async with http_session.post(api_url, headers=headers, json=payload) as resp2:
-                            if resp2.status != 200:
-                                raise Exception(f"工具返回失敗 HTTP {resp2.status}")
-                            
-                            data2 = await resp2.json()
-                            final_reply = data2['choices'][0]['message'].get('content', '')
-                            
-                            if not final_reply or str(final_reply).strip() == "":
-                                if tools_executed_names:
-                                    final_reply = f"✅ 老闆，任務已在後台完成（已調用工具：{', '.join(tools_executed_names)}）。"
-                                else:
-                                    final_reply = "⚠️ [系統攔截] 大腦回傳空白內容。"
-                                    
-                            WEB_MEMORY.append({"role": "assistant", "content": final_reply})
-                            success = True
-                            return jsonify({"reply": final_reply})
+                        # 迴圈繼續！
                     else:
-                        reply = msg.get('content', "✅ 已收到指令。")
-                        WEB_MEMORY.append({"role": "assistant", "content": reply})
-                        success = True
-                        return jsonify({"reply": reply})
+                        # 成功獲取文字，跳出循環
+                        final_reply = msg.get('content', '')
+                        break
+                        
+                if not final_reply or str(final_reply).strip() == "":
+                    if tools_executed_names:
+                        final_reply = f"✅ 老闆，任務已在後台完成（已調用工具：{', '.join(tools_executed_names)}），大腦未輸出文字報告。"
+                    else:
+                        final_reply = "⚠️ [系統攔截] 大腦回傳空白內容。"
+                        
+                WEB_MEMORY.append({"role": "assistant", "content": final_reply})
+                success = True
+                return jsonify({"reply": final_reply})
                         
         except Exception as e:
             error_msg_log.append(f"[{current_model}] {str(e)}")
