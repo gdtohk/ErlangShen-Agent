@@ -359,7 +359,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 headers["x-goog-api-key"] = current_key
 
             try:
-                # 🌟 [核心修復]：加入 3 次連續思考循環防崩潰
+                # 🌟 [核心修復]：加入 3 次連續思考循環，防早洩中斷
                 api_timeout = aiohttp.ClientTimeout(total=180)
                 async with aiohttp.ClientSession(timeout=api_timeout) as session:
                     for _ in range(3):
