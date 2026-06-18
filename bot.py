@@ -288,7 +288,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     config = dotenv_values(".env")
     
-    # 解析備用模型清單
     current_model_str = config.get("MODEL_NAME", "gemini-2.5-flash")
     models_list = [m.strip() for m in current_model_str.split(',') if m.strip()]
     if not models_list: models_list = ["gemini-2.5-flash"]
@@ -323,7 +322,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     tools_executed_names = []
 
-    # 雙重連環 Loop：先遍歷模型，再遍歷節點
     for current_model in models_list:
         if success: break
         
@@ -361,30 +359,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 headers["x-goog-api-key"] = current_key
 
             try:
+                # 🌟 [核心修復]：加入 3 次連續思考循環，防早洩中斷
                 api_timeout = aiohttp.ClientTimeout(total=180)
                 async with aiohttp.ClientSession(timeout=api_timeout) as session:
-                    post_req = session.post(current_url, headers=headers, json=temp_payload)
-                    async with post_req as response:
-                        if response.status == 400:
-                            temp_payload.pop("safetySettings", None)
-                            temp_payload.pop("safety_settings", None)
-                            async with session.post(current_url, headers=headers, json=temp_payload) as retry_response:
-                                if retry_response.status != 200:
-                                    raise Exception(f"HTTP {retry_response.status} (降級重試失敗)")
-                                data = await retry_response.json()
-                        elif response.status != 200: 
-                            err_txt = await response.text()
-                            raise Exception(f"HTTP {response.status} ({err_txt[:60]}...)")
-                        else:
-                            data = await response.json()
+                    for _ in range(3):
+                        post_req = session.post(current_url, headers=headers, json=temp_payload)
+                        async with post_req as response:
+                            if response.status == 400 and ("safetySettings" in temp_payload or "safety_settings" in temp_payload):
+                                temp_payload.pop("safetySettings", None)
+                                temp_payload.pop("safety_settings", None)
+                                response = await session.post(current_url, headers=headers, json=temp_payload)
+                                
+                            if response.status != 200: 
+                                err_txt = await response.text()
+                                raise Exception(f"HTTP {response.status} ({err_txt[:60]}...)")
                             
-                        if 'choices' not in data: raise Exception("代理返回異常")
-                        
-                        choice_data = data['choices'][0]
-                        if isinstance(choice_data, list): choice_data = choice_data[0]
-                        
-                        msg = choice_data.get('message', {})
-                        if isinstance(msg, list): msg = msg[0]
+                            data = await response.json()
+                            if 'choices' not in data: raise Exception("代理返回異常")
+                            
+                            choice_data = data['choices'][0]
+                            if isinstance(choice_data, list): choice_data = choice_data[0]
+                            
+                            msg = choice_data.get('message', {})
+                            if isinstance(msg, list): msg = msg[0]
 
                         if msg.get('tool_calls'):
                             raw_tc_list = msg['tool_calls']
@@ -419,58 +416,45 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                 
                                 tools_executed_names.append(fn)
                                 
-                                res = await AGENT_TOOLS_REGISTRY[fn]["func"](chat_id=chat_id, context=context, **args)
-                                
-                                is_ss = False
                                 try:
-                                    rj = json.loads(str(res))
-                                    if isinstance(rj, dict):
-                                        if rj.get("type") == "webpage_with_screenshot":
-                                            temp_memory.append({"role": "tool", "tool_call_id": tc['id'], "name": fn, "content": f"文字：{rj.get('text', '')}"})
-                                            temp_memory.append({"role": "user", "content": [{"type": "text", "text": "請參考網頁截圖。"}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{rj.get('image_base64', '')}"}}]})
-                                            is_ss = True
-                                        elif rj.get("type") == "pdf_with_images":
-                                            temp_memory.append({"role": "tool", "tool_call_id": tc['id'], "name": fn, "content": rj.get("text", "成功擷取影像")})
-                                            
-                                            img_contents = [{"type": "text", "text": "【系統注入】：以上是從雲端硬碟提取的圖紙影像，請以專業 QS 角度仔細進行視覺分析、解讀當中的表格及細節。"}]
-                                            for b64_img in rj.get("images_base64", []):
-                                                img_contents.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_img}"}})
+                                    res = await AGENT_TOOLS_REGISTRY[fn]["func"](chat_id=chat_id, context=context, **args)
+                                    
+                                    is_ss = False
+                                    try:
+                                        rj = json.loads(str(res))
+                                        if isinstance(rj, dict):
+                                            if rj.get("type") == "webpage_with_screenshot":
+                                                temp_memory.append({"role": "tool", "tool_call_id": tc['id'], "name": fn, "content": f"文字：{rj.get('text', '')}"})
+                                                temp_memory.append({"role": "user", "content": [{"type": "text", "text": "請參考網頁截圖。"}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{rj.get('image_base64', '')}"}}]})
+                                                is_ss = True
+                                            elif rj.get("type") == "pdf_with_images":
+                                                temp_memory.append({"role": "tool", "tool_call_id": tc['id'], "name": fn, "content": rj.get("text", "成功擷取影像")})
                                                 
-                                            temp_memory.append({"role": "user", "content": img_contents})
-                                            is_ss = True
-                                except: pass
+                                                img_contents = [{"type": "text", "text": "【系統注入】：以上是從雲端硬碟提取的圖紙影像，請以專業 QS 角度仔細進行視覺分析、解讀當中的表格及細節。"}]
+                                                for b64_img in rj.get("images_base64", []):
+                                                    img_contents.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_img}"}})
+                                                    
+                                                temp_memory.append({"role": "user", "content": img_contents})
+                                                is_ss = True
+                                    except: pass
 
-                                if not is_ss:
-                                    tool_out = str(res)
-                                    if len(tool_out) > 4000:
-                                        tool_out = tool_out[:4000] + "\n\n...(內容過長，系統已自動截斷以保護短期記憶體避免崩潰)..."
-                                    temp_memory.append({"role": "tool", "tool_call_id": tc['id'], "name": fn, "content": tool_out})
+                                    if not is_ss:
+                                        tool_out = str(res)
+                                        if len(tool_out) > 4000:
+                                            tool_out = tool_out[:4000] + "\n\n...(內容過長，系統已自動截斷以保護短期記憶體避免崩潰)..."
+                                        temp_memory.append({"role": "tool", "tool_call_id": tc['id'], "name": fn, "content": tool_out})
+                                        
+                                except Exception as e:
+                                    temp_memory.append({"role": "tool", "tool_call_id": tc['id'], "name": fn, "content": f"工具執行失敗: {str(e)}"})
                             
                             temp_payload["messages"] = temp_memory
-                            
-                            async with session.post(current_url, headers=headers, json=temp_payload) as res2:
-                                if res2.status == 400 and ("safetySettings" in temp_payload or "safety_settings" in temp_payload):
-                                    temp_payload.pop("safetySettings", None)
-                                    temp_payload.pop("safety_settings", None)
-                                    res2 = await session.post(current_url, headers=headers, json=temp_payload)
-                                    
-                                if res2.status != 200: 
-                                    err_txt = await res2.text()
-                                    raise Exception(f"工具匯報 HTTP {res2.status} ({err_txt[:60]}...)")
-                                
-                                res2_data = await res2.json()
-                                c_data = res2_data['choices'][0]
-                                if isinstance(c_data, list): c_data = c_data[0]
-                                
-                                m_data = c_data.get('message', {})
-                                if isinstance(m_data, list): m_data = m_data[0]
-                                final_reply = m_data.get('content', "")
                         else:
                             final_reply = msg.get('content', "")
+                            break
 
-                        user_memory[user_id] = temp_memory
-                        success = True
-                        break
+                user_memory[user_id] = temp_memory
+                success = True
+                break
             
             except asyncio.TimeoutError:
                 node_name = "官方節點" if "googleapis.com" in current_url else "CPAMC節點"
@@ -492,9 +476,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if final_reply is None or str(final_reply).strip() == "":
         if tools_executed_names:
-            final_reply = f"✅ 老闆，我已經成功幫你喺後台執行咗任務（調用工具：{', '.join(tools_executed_names)}），搞掂啦！"
+            final_reply = f"✅ 老闆，我已經成功幫你喺後台執行咗任務（調用工具：{', '.join(tools_executed_names)}），但因為新聞內容觸發安全審查或長度過長，大腦無法輸出最終文字報告。"
         else:
-            final_reply = "⚠️ [系統攔截] 報告老闆，大腦回傳了空白內容！\n這通常是因為爬取回來的資料（例如網上負評、粗口）觸發了 AI 供應商的安全審查機制（Safety Filters）。"
+            final_reply = "⚠️ [系統攔截] 報告老闆，大腦回傳了空白內容！\n這通常是因為爬取回來的資料觸發了 AI 供應商的安全審查機制（Safety Filters）。"
         
     await update.message.reply_text(final_reply)
 
