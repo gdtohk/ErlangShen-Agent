@@ -289,7 +289,7 @@ async def schedule_custom_task(chat_id, context, hour: int, minute: int, task_pr
                 headers["x-goog-api-key"] = api_key
             
             try:
-                # 🌟 [核心修復]：加入 3 次連續思考循環，防崩潰修訂版
+                # 🌟 [核心修復]：加入 3 次連續思考循環
                 async with aiohttp.ClientSession() as session:
                     final_reply = ""
                     tools_executed_names = []
@@ -344,8 +344,10 @@ async def schedule_custom_task(chat_id, context, hour: int, minute: int, task_pr
                                 except Exception as e:
                                     messages.append({"role": "tool", "tool_call_id": tc['id'], "name": fn_name, "content": f"工具執行失敗: {str(e)}"})
                             
+                            # 循環繼續，將剛才的工具結果帶入 payload 再發一次
                             payload["messages"] = messages
                         else:
+                            # 成功取得文字回覆，跳出思考循環！
                             final_reply = msg.get('content', "")
                             break
                             
@@ -357,28 +359,32 @@ async def schedule_custom_task(chat_id, context, hour: int, minute: int, task_pr
                         else:
                             await ctx.bot.send_message(chat_id=chat_id, text="⚠️ [系統攔截] 報告老闆，大腦回傳了空白內容！可能觸發了安全審查。")
                             
-    except Exception as e:
-        await ctx.bot.send_message(chat_id=chat_id, text=f"❌ 定時任務「{task_prompt}」執行時發生錯誤：{str(e)}")
+            except Exception as e:
+                await ctx.bot.send_message(chat_id=chat_id, text=f"❌ 定時任務「{task_prompt}」執行時發生錯誤：{str(e)}")
 
-    hk_tz = ZoneInfo("Asia/Hong_Kong")
-    now = datetime.datetime.now(hk_tz)
-    
-    if is_daily:
-        target_time = datetime.time(hour=int(hour), minute=int(minute), tzinfo=hk_tz)
-        job_name = f"custom_job_daily_{chat_id}_{hour}_{minute}"
-        context.job_queue.run_daily(custom_task_job, time=target_time, chat_id=chat_id, name=job_name)
-        return f"✅ 成功！已經幫老闆設定咗【每日 {int(hour):02d}:{int(minute):02d}】自動執行任務：「{task_prompt}」。我到時會自動去搜集資料並匯報！"
-    else:
-        target_dt = now.replace(hour=int(hour), minute=int(minute), second=0, microsecond=0)
-        if target_dt < now: target_dt += datetime.timedelta(days=1)
-        job_name = f"custom_job_once_{chat_id}_{hour}_{minute}"
-        context.job_queue.run_once(custom_task_job, when=target_dt, chat_id=chat_id, name=job_name)
-        return f"✅ 成功！已經幫老闆設定咗【單次預約任務】，將於 {target_dt.strftime('%m月%d日 %H:%M')} 自動執行：「{task_prompt}」。"
+        hk_tz = ZoneInfo("Asia/Hong_Kong")
+        now = datetime.datetime.now(hk_tz)
+        
+        if is_daily:
+            target_time = datetime.time(hour=int(hour), minute=int(minute), tzinfo=hk_tz)
+            job_name = f"custom_job_daily_{chat_id}_{hour}_{minute}"
+            context.job_queue.run_daily(custom_task_job, time=target_time, chat_id=chat_id, name=job_name)
+            return f"✅ 成功！已經幫老闆設定咗【每日 {int(hour):02d}:{int(minute):02d}】自動執行任務：「{task_prompt}」。我到時會自動去搜集資料並匯報！"
+        else:
+            target_dt = now.replace(hour=int(hour), minute=int(minute), second=0, microsecond=0)
+            if target_dt < now: target_dt += datetime.timedelta(days=1)
+            job_name = f"custom_job_once_{chat_id}_{hour}_{minute}"
+            context.job_queue.run_once(custom_task_job, when=target_dt, chat_id=chat_id, name=job_name)
+            return f"✅ 成功！已經幫老闆設定咗【單次預約任務】，將於 {target_dt.strftime('%m月%d日 %H:%M')} 自動執行：「{task_prompt}」。"
+
+    # 🌟 核心修復：這就是導致全盤死機的 Syntax Error 缺失補丁！
+    except Exception as e:
+        return f"❌ 設定自定義定時任務失敗：{str(e)}"
 
 def create_tool(func, name, desc, params, required):
     return {"func": func, "schema": {"type": "function", "function": {"name": name, "description": desc, "parameters": {"type": "object", "properties": params, "required": required}}}}
 
-# ================= 技能註冊表 (🌟 防點錯相修訂版) =================
+# ================= 技能註冊表 =================
 AGENT_TOOLS_REGISTRY = {
     "calc_rebar_weight": create_tool(calc_rebar_weight, "calc_rebar_weight", "計算鋼筋重量。", {"d": {"type": "number"}, "length": {"type": "number"}, "qty": {"type": "number"}}, ["d", "length"]),
     "get_hk_weather_detailed": create_tool(get_hk_weather_detailed, "get_hk_weather_detailed", "獲取香港最新天氣預報。", {}, []),
@@ -386,7 +392,7 @@ AGENT_TOOLS_REGISTRY = {
     "schedule_daily_weather": create_tool(schedule_daily_weather, "schedule_daily_weather", "設定每日定時晨報。", {"hour": {"type": "integer"}, "minute": {"type": "integer"}}, ["hour", "minute"]),
     "get_global_weather": create_tool(get_global_weather, "get_global_weather", "查詢全球城市天氣。", {"location": {"type": "string"}}, ["location"]),
     
-    # 🌟 核心防禦：嚴禁把網址直接丟入 search_web！
+    # 🌟 防點錯相修訂
     "search_web": create_tool(search_web, "search_web", "全能網絡搜尋。🚨【極重要】：只能用於搜尋「關鍵字」或「新聞標題」，嚴禁將完整的網址(URL)直接放入此處搜尋！當老闆詢問「今日新聞」、「最新消息」或「熱門新聞」時，必須設定 recency 參數為 '1d'！", {
         "query": {"type": "string", "description": "要搜尋的關鍵字（嚴禁輸入完整網址）"},
         "recency": {"type": "string", "description": "時間限制：'1d', '7d', '1m', '1y'。", "enum": ["1d", "7d", "1m", "1y"]}
@@ -394,7 +400,7 @@ AGENT_TOOLS_REGISTRY = {
     "update_from_github": create_tool(update_from_github, "update_from_github", "更新系統代碼。", {}, []),
     "generate_rebar_excel": create_tool(generate_rebar_excel, "generate_rebar_excel", "生成 Excel 報表。", {"report_name": {"type": "string"}, "records": {"type": "array", "items": {"type": "object", "properties": {"d": {"type": "number"}, "length": {"type": "number"}, "qty": {"type": "number"}, "weight": {"type": "number"}}, "required": ["d", "length", "qty", "weight"]}}}, ["report_name", "records"]),
     
-    # 🌟 核心防禦：教 AI 見到網址就必須用 browse_website！
+    # 🌟 防點錯相修訂
     "browse_website": create_tool(browse_website_with_playwright, "browse_website", "瀏覽網頁並獲取實時截圖分析。🚨【極重要】：當老闆提供具體網址 (URL) 時，必須優先調用此工具來讀取網址內容，絕對不要使用 search_web！", {"url": {"type": "string"}}, ["url"]),
     "scrape_webpage_text": create_tool(read_webpage_with_jina, "scrape_webpage_text", "使用 Jina API 極速讀取網頁純文字內容。🚨【極重要】：當老闆提供具體網址 (URL) 時，必須優先調用此工具，絕對不要使用 search_web！", {"url": {"type": "string"}}, ["url"]),
     
