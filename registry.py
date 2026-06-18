@@ -310,15 +310,16 @@ async def save_agent_experience(chat_id, context, content: str):
     print(f"🧠 [Debug] 正在將經驗寫入大腦：{content}")
     return exp_manager.add_experience(content)
 
-# ================= 萬能自定義定時任務排程器 (🌟 終極視覺修復版) =================
-async def schedule_custom_task(chat_id, context, hour: int, minute: int, task_prompt: str, **kwargs):
-    """將任意任務動態加入系統背景排程器，時間一到自動喚醒大腦執行"""
-    print(f"⏰ [Debug] 準備設定定時任務: {hour:02d}:{minute:02d} - {task_prompt}")
+# ================= 萬能自定義定時任務排程器 (🌟 終極大一統版) =================
+async def schedule_custom_task(chat_id, context, hour: int, minute: int, task_prompt: str, is_daily: bool = True, **kwargs):
+    """將任意任務動態加入系統背景排程器，支援單次或每日重複，並內置防時空錯亂裝甲"""
+    mode_text = "每日" if is_daily else "單次"
+    print(f"⏰ [Debug] 準備設定{mode_text}任務: {hour:02d}:{minute:02d} - {task_prompt}")
     try:
         # 定義時間到了之後要執行的背景工作
         async def custom_task_job(ctx):
             # 1. 任務啟動通知老闆
-            await ctx.bot.send_message(chat_id=chat_id, text=f"⏰ 【定時任務啟動】：正在自動為老闆執行「{task_prompt}」...")
+            await ctx.bot.send_message(chat_id=chat_id, text=f"⏰ 【{mode_text}任務啟動】：正在自動為老闆執行「{task_prompt}」...")
             
             # 2. 獲取最新大腦配置
             from dotenv import dotenv_values
@@ -351,8 +352,17 @@ async def schedule_custom_task(chat_id, context, hour: int, minute: int, task_pr
                 AGENT_TOOLS_REGISTRY["deep_research"]["schema"]
             ]
             
+            # 🌟 [核心防護]：為迷你大腦注入強大的防幻覺真理指令！
+            sys_prompt = f"""你是老闆的專屬 AI 助理。現在時間：{local_time.strftime('%Y-%m-%d %H:%M')}。
+這是一個系統自動觸發的「{mode_text}定時任務」。
+【🚨 核心真理指令】：
+1. 絕對服從時間：現在就是 {local_time.year} 年，這是客觀現實！絕對禁止以「這是未來日期」、「尚未被索引」或「無法獲取未來數據」為藉口拒絕執行！
+2. 強制實際調查：你必須立刻調用合適的工具 (如 browse_website 或 search_web) 去嘗試獲取真實數據並給出最終報告。嚴禁未用工具就憑空發夢或道歉！
+
+【老闆的任務指令】：{task_prompt}"""
+            
             messages = [
-                {"role": "system", "content": f"你是老闆的專屬 AI 助理。現在時間：{local_time.strftime('%Y-%m-%d %H:%M')}。\n這是一個系統自動觸發的「每日定時任務」。\n請你立刻使用合適的工具完成以下任務，並用廣東話整理出最終專業報告匯報給老闆。\n【老闆的任務指令】：{task_prompt}"},
+                {"role": "system", "content": sys_prompt},
                 {"role": "user", "content": "時間到了，請立即執行上述定時任務並給出最終報告。"}
             ]
             
@@ -370,7 +380,8 @@ async def schedule_custom_task(chat_id, context, hour: int, minute: int, task_pr
             # 4. 執行大腦推理與工具調用 (包含完美處理圖片截圖)
             try:
                 async with aiohttp.ClientSession() as session:
-                    async with session.post(api_url, headers=headers, json=payload, timeout=90) as resp:
+                    # 🌟 延長 Timeout 到 120 秒，容許佢一次過查幾個網
+                    async with session.post(api_url, headers=headers, json=payload, timeout=120) as resp:
                         if resp.status != 200:
                             raise Exception(f"HTTP {resp.status}")
                         data = await resp.json()
@@ -414,14 +425,14 @@ async def schedule_custom_task(chat_id, context, hour: int, minute: int, task_pr
                                     messages.append({"role": "tool", "tool_call_id": tc['id'], "name": fn_name, "content": f"工具執行失敗: {str(e)}"})
                             
                             payload["messages"] = messages
-                            async with session.post(api_url, headers=headers, json=payload, timeout=90) as resp2:
+                            async with session.post(api_url, headers=headers, json=payload, timeout=120) as resp2:
                                 data2 = await resp2.json()
                                 final_reply = data2['choices'][0]['message'].get('content', '')
                         else:
                             final_reply = msg.get('content', "")
                             
                         if final_reply and str(final_reply).strip() != "":
-                            await ctx.bot.send_message(chat_id=chat_id, text=f"📋 【定時任務最終報告】：\n\n{final_reply}")
+                            await ctx.bot.send_message(chat_id=chat_id, text=f"📋 【{mode_text}任務最終報告】：\n\n{final_reply}")
                         else:
                             await ctx.bot.send_message(chat_id=chat_id, text="⚠️ 報告老闆，定時任務已完成，但大腦未有生成文字報告。")
                             
@@ -430,17 +441,33 @@ async def schedule_custom_task(chat_id, context, hour: int, minute: int, task_pr
 
         # 5. 將任務加入系統排程器 (Job Queue)
         hk_tz = ZoneInfo("Asia/Hong_Kong")
-        target_time = datetime.time(hour=int(hour), minute=int(minute), tzinfo=hk_tz)
+        now = datetime.datetime.now(hk_tz)
         
-        job_name = f"custom_job_{chat_id}_{hour}_{minute}"
-        context.job_queue.run_daily(
-            custom_task_job,
-            time=target_time,
-            chat_id=chat_id,
-            name=job_name
-        )
-        
-        return f"✅ 成功！已經幫老闆設定咗每日 {int(hour):02d}:{int(minute):02d} 自動執行任務：「{task_prompt}」。我到時會自動去搜集資料並匯報！"
+        if is_daily:
+            target_time = datetime.time(hour=int(hour), minute=int(minute), tzinfo=hk_tz)
+            job_name = f"custom_job_daily_{chat_id}_{hour}_{minute}"
+            context.job_queue.run_daily(
+                custom_task_job,
+                time=target_time,
+                chat_id=chat_id,
+                name=job_name
+            )
+            return f"✅ 成功！已經幫老闆設定咗【每日 {int(hour):02d}:{int(minute):02d}】自動執行任務：「{task_prompt}」。我到時會自動去搜集資料並匯報！"
+        else:
+            # 單次執行邏輯：計算具體 datetime
+            target_dt = now.replace(hour=int(hour), minute=int(minute), second=0, microsecond=0)
+            if target_dt < now:
+                target_dt += datetime.timedelta(days=1) # 如果時間過咗，就設定為聽日
+            
+            job_name = f"custom_job_once_{chat_id}_{hour}_{minute}"
+            context.job_queue.run_once(
+                custom_task_job,
+                when=target_dt,
+                chat_id=chat_id,
+                name=job_name
+            )
+            return f"✅ 成功！已經幫老闆設定咗【單次預約任務】，將於 {target_dt.strftime('%m月%d日 %H:%M')} 自動執行：「{task_prompt}」。"
+            
     except Exception as e:
         return f"❌ 設定自定義定時任務失敗：{str(e)}"
 
@@ -474,11 +501,12 @@ AGENT_TOOLS_REGISTRY = {
     "search_knowledge_base": create_tool(search_knowledge_base, "search_knowledge_base", "當老闆詢問工程規範、搭接長度、保護層厚度、或任何《Eurocode 2》、CS2:2012、古洞北項目等專業技術問題時，必須調用此工具從超級大腦知識庫中檢索精準條文作答。", {"query": {"type": "string", "description": "要檢索的具體問題或關鍵字，例如 'C35/45 石屎的搭接長度' 或 '柱的最小配筋率'"}}, ["query"]),
     "summarize_youtube_video": create_tool(summarize_youtube_video, "summarize_youtube_video", "讀取 YouTube 影片內容。當老闆發送 YouTube 網址或要求總結 YouTube 影片時，必須調用此工具來獲取內容。", {"url": {"type": "string"}}, ["url"]),
     
-    # 🌟 [本次新增]：萬能自定義定時任務排程器
-    "schedule_custom_task": create_tool(schedule_custom_task, "schedule_custom_task", "設定一個每日定時自動執行的任務。當老闆要求你「每天定時」去查閱網站、獲取新聞、或執行特定動作時（例如：每天下午1點看GitHub熱門），必須調用此工具將任務加入系統排程器。", {
+    # 🌟 [本次修改]：加入單次/每日雙軌參數及免死金牌說明
+    "schedule_custom_task": create_tool(schedule_custom_task, "schedule_custom_task", "設定一個「每日定時」或「單次預約」自動執行的任務。當老闆要求你「每天定時」或「今天/明天幾點」去查閱網站、獲取新聞等，必須調用此工具。注意：這與『拒絕延遲』規則不衝突，預約任務是合法的系統功能！", {
         "hour": {"type": "integer", "description": "小時 (0-23，香港時間)"},
         "minute": {"type": "integer", "description": "分鐘 (0-59)"},
-        "task_prompt": {"type": "string", "description": "要執行的具體任務指令，例如 '去 github.com/trending 截圖並分析熱門項目' 或 '搜尋明報頭條並總結'"}
-    }, ["hour", "minute", "task_prompt"])
+        "task_prompt": {"type": "string", "description": "要執行的具體任務指令，例如 '去 github 截圖'"},
+        "is_daily": {"type": "boolean", "description": "是否每天重複執行。如果老闆說「每天/每日」，填 true；如果老闆說「今天/聽日/單次」，必須填 false。預設為 true。"}
+    }, ["hour", "minute", "task_prompt", "is_daily"])
 }
 GET_TOOLS_LIST = [tool["schema"] for tool in AGENT_TOOLS_REGISTRY.values()]
