@@ -416,12 +416,21 @@ async def api_chat():
             async with aiohttp.ClientSession() as http_session:
                 for _ in range(3):
                     async with http_session.post(api_url, headers=headers, json=payload) as resp:
-                        if resp.status != 200:
-                            err_txt = await resp.text()
-                            raise Exception(f"HTTP {resp.status} ({err_txt[:60]}...)")
+                        if resp.status == 400 and ("safetySettings" in payload or "safety_settings" in payload):
+                            payload.pop("safetySettings", None)
+                            payload.pop("safety_settings", None)
+                            async with http_session.post(api_url, headers=headers, json=payload) as retry_resp:
+                                if retry_resp.status != 200:
+                                    err_txt = await retry_resp.text()
+                                    raise Exception(f"HTTP {retry_resp.status} ({err_txt[:60]}...)")
+                                data = await retry_resp.json()
+                        else:
+                            if resp.status != 200:
+                                err_txt = await resp.text()
+                                raise Exception(f"HTTP {resp.status} ({err_txt[:60]}...)")
+                            data = await resp.json()
                             
-                        data = await resp.json()
-                        msg = data['choices'][0]['message']
+                    msg = data['choices'][0]['message']
 
                     if msg.get('tool_calls'):
                         temp_memory = list(WEB_MEMORY)
