@@ -359,29 +359,32 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 headers["x-goog-api-key"] = current_key
 
             try:
-                # 🌟 [核心修復]：加入 3 次連續思考循環，防早洩中斷
+                # 🌟 [核心修復]：加入 3 次連續思考循環防崩潰
                 api_timeout = aiohttp.ClientTimeout(total=180)
                 async with aiohttp.ClientSession(timeout=api_timeout) as session:
                     for _ in range(3):
-                        post_req = session.post(current_url, headers=headers, json=temp_payload)
-                        async with post_req as response:
+                        async with session.post(current_url, headers=headers, json=temp_payload) as response:
                             if response.status == 400 and ("safetySettings" in temp_payload or "safety_settings" in temp_payload):
                                 temp_payload.pop("safetySettings", None)
                                 temp_payload.pop("safety_settings", None)
-                                response = await session.post(current_url, headers=headers, json=temp_payload)
+                                async with session.post(current_url, headers=headers, json=temp_payload) as retry_response:
+                                    if retry_response.status != 200: 
+                                        err_txt = await retry_response.text()
+                                        raise Exception(f"HTTP {retry_response.status} ({err_txt[:60]}...)")
+                                    data = await retry_response.json()
+                            else:
+                                if response.status != 200: 
+                                    err_txt = await response.text()
+                                    raise Exception(f"HTTP {response.status} ({err_txt[:60]}...)")
+                                data = await response.json()
                                 
-                            if response.status != 200: 
-                                err_txt = await response.text()
-                                raise Exception(f"HTTP {response.status} ({err_txt[:60]}...)")
-                            
-                            data = await response.json()
-                            if 'choices' not in data: raise Exception("代理返回異常")
-                            
-                            choice_data = data['choices'][0]
-                            if isinstance(choice_data, list): choice_data = choice_data[0]
-                            
-                            msg = choice_data.get('message', {})
-                            if isinstance(msg, list): msg = msg[0]
+                        if 'choices' not in data: raise Exception("代理返回異常")
+                        
+                        choice_data = data['choices'][0]
+                        if isinstance(choice_data, list): choice_data = choice_data[0]
+                        
+                        msg = choice_data.get('message', {})
+                        if isinstance(msg, list): msg = msg[0]
 
                         if msg.get('tool_calls'):
                             raw_tc_list = msg['tool_calls']
