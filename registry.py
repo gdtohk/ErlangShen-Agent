@@ -289,7 +289,7 @@ async def schedule_custom_task(chat_id, context, hour: int, minute: int, task_pr
                 headers["x-goog-api-key"] = api_key
             
             try:
-                # 🌟 [核心修復]：加入 3 次連續思考循環，容許大腦自我糾正同埋多次調用工具
+                # 🌟 [核心修復]：加入 3 次連續思考循環，防崩潰修訂版
                 async with aiohttp.ClientSession() as session:
                     final_reply = ""
                     tools_executed_names = []
@@ -299,12 +299,16 @@ async def schedule_custom_task(chat_id, context, hour: int, minute: int, task_pr
                             if resp.status == 400 and ("safetySettings" in payload or "safety_settings" in payload):
                                 payload.pop("safetySettings", None)
                                 payload.pop("safety_settings", None)
-                                resp = await session.post(api_url, headers=headers, json=payload, timeout=180)
+                                async with session.post(api_url, headers=headers, json=payload, timeout=180) as retry_resp:
+                                    if retry_resp.status != 200: 
+                                        raise Exception(f"HTTP {retry_resp.status}")
+                                    data = await retry_resp.json()
+                            else:
+                                if resp.status != 200: 
+                                    raise Exception(f"HTTP {resp.status}")
+                                data = await resp.json()
                                 
-                            if resp.status != 200: raise Exception(f"HTTP {resp.status}")
-                            
-                            data = await resp.json()
-                            msg = data['choices'][0]['message']
+                        msg = data['choices'][0]['message']
                             
                         if msg.get('tool_calls'):
                             messages.append(msg)
@@ -340,10 +344,8 @@ async def schedule_custom_task(chat_id, context, hour: int, minute: int, task_pr
                                 except Exception as e:
                                     messages.append({"role": "tool", "tool_call_id": tc['id'], "name": fn_name, "content": f"工具執行失敗: {str(e)}"})
                             
-                            # 循環繼續，將剛才的工具結果帶入 payload 再發一次
                             payload["messages"] = messages
                         else:
-                            # 成功取得文字回覆，跳出思考循環！
                             final_reply = msg.get('content', "")
                             break
                             
