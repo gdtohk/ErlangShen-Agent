@@ -310,9 +310,9 @@ async def save_agent_experience(chat_id, context, content: str):
     print(f"🧠 [Debug] 正在將經驗寫入大腦：{content}")
     return exp_manager.add_experience(content)
 
-# ================= 萬能自定義定時任務排程器 (🌟 終極大一統版) =================
+# ================= 萬能自定義定時任務排程器 (🌟 終極大一統 + 安全豁免版) =================
 async def schedule_custom_task(chat_id, context, hour: int, minute: int, task_prompt: str, is_daily: bool = True, **kwargs):
-    """將任意任務動態加入系統背景排程器，支援單次或每日重複，並內置防時空錯亂裝甲"""
+    """將任意任務動態加入系統背景排程器，支援單次或每日重複，並內置防時空錯亂及防過濾裝甲"""
     mode_text = "每日" if is_daily else "單次"
     print(f"⏰ [Debug] 準備設定{mode_text}任務: {hour:02d}:{minute:02d} - {task_prompt}")
     try:
@@ -352,7 +352,7 @@ async def schedule_custom_task(chat_id, context, hour: int, minute: int, task_pr
                 AGENT_TOOLS_REGISTRY["deep_research"]["schema"]
             ]
             
-            # 🌟 [核心防護]：為迷你大腦注入強大的防幻覺真理指令！
+            # 🌟 [核心防護 1]：為迷你大腦注入防時空幻覺指令
             sys_prompt = f"""你是老闆的專屬 AI 助理。現在時間：{local_time.strftime('%Y-%m-%d %H:%M')}。
 這是一個系統自動觸發的「{mode_text}定時任務」。
 【🚨 核心真理指令】：
@@ -366,11 +366,24 @@ async def schedule_custom_task(chat_id, context, hour: int, minute: int, task_pr
                 {"role": "user", "content": "時間到了，請立即執行上述定時任務並給出最終報告。"}
             ]
             
+            # 🌟 [核心防護 2]：注入強制繞過安全審查 (Safety Settings)，防止被新聞內容和諧
             payload = {
                 "model": model,
                 "messages": messages,
                 "tools": safe_tools,
-                "tool_choice": "auto"
+                "tool_choice": "auto",
+                "safetySettings": [
+                    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
+                ],
+                "safety_settings": [
+                    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
+                ]
             }
             
             headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
@@ -379,24 +392,32 @@ async def schedule_custom_task(chat_id, context, hour: int, minute: int, task_pr
             
             # 4. 執行大腦推理與工具調用 (包含完美處理圖片截圖)
             try:
+                # 🌟 [核心防護 3]：Timeout 提升至 180 秒，確保有足夠時間刮晒 6 個網
                 async with aiohttp.ClientSession() as session:
-                    # 🌟 延長 Timeout 到 120 秒，容許佢一次過查幾個網
-                    async with session.post(api_url, headers=headers, json=payload, timeout=120) as resp:
+                    post_req = session.post(api_url, headers=headers, json=payload, timeout=180)
+                    async with post_req as resp:
+                        # 兼容非官方 API (例如 OpenAI 格式不支援 Gemini safetySettings)
+                        if resp.status == 400:
+                            payload.pop("safetySettings", None)
+                            payload.pop("safety_settings", None)
+                            resp = await session.post(api_url, headers=headers, json=payload, timeout=180)
+                            
                         if resp.status != 200:
                             raise Exception(f"HTTP {resp.status}")
                         data = await resp.json()
                         msg = data['choices'][0]['message']
                         
+                        tools_executed_names = []
                         if msg.get('tool_calls'):
                             messages.append(msg)
                             for tc in msg['tool_calls']:
                                 fn_name = tc['function']['name']
                                 args = json.loads(tc['function']['arguments'])
+                                tools_executed_names.append(fn_name)
                                 
                                 try:
                                     res = await AGENT_TOOLS_REGISTRY[fn_name]["func"](chat_id=chat_id, context=ctx, **args)
                                     
-                                    # 🌟 核心圖像解碼修復區：完美鏡像 bot.py 的圖像處理邏輯
                                     is_ss = False
                                     try:
                                         rj = json.loads(str(res))
@@ -425,16 +446,28 @@ async def schedule_custom_task(chat_id, context, hour: int, minute: int, task_pr
                                     messages.append({"role": "tool", "tool_call_id": tc['id'], "name": fn_name, "content": f"工具執行失敗: {str(e)}"})
                             
                             payload["messages"] = messages
-                            async with session.post(api_url, headers=headers, json=payload, timeout=120) as resp2:
+                            res2_req = session.post(api_url, headers=headers, json=payload, timeout=180)
+                            async with res2_req as resp2:
+                                if resp2.status == 400 and ("safetySettings" in payload or "safety_settings" in payload):
+                                    payload.pop("safetySettings", None)
+                                    payload.pop("safety_settings", None)
+                                    resp2 = await session.post(api_url, headers=headers, json=payload, timeout=180)
+                                    
+                                if resp2.status != 200:
+                                    raise Exception(f"大腦生成報告失敗 HTTP {resp2.status}")
                                 data2 = await resp2.json()
                                 final_reply = data2['choices'][0]['message'].get('content', '')
                         else:
                             final_reply = msg.get('content', "")
                             
+                        # 🌟 [核心防護 4]：完美同步 bot.py 邏輯，避免直接丟出「未生成報告」
                         if final_reply and str(final_reply).strip() != "":
                             await ctx.bot.send_message(chat_id=chat_id, text=f"📋 【{mode_text}任務最終報告】：\n\n{final_reply}")
                         else:
-                            await ctx.bot.send_message(chat_id=chat_id, text="⚠️ 報告老闆，定時任務已完成，但大腦未有生成文字報告。")
+                            if tools_executed_names:
+                                await ctx.bot.send_message(chat_id=chat_id, text=f"✅ 老闆，任務已在後台完成（已調用工具：{', '.join(tools_executed_names)}），但因為新聞內容觸發安全審查，大腦無法輸出文字報告。")
+                            else:
+                                await ctx.bot.send_message(chat_id=chat_id, text="⚠️ [系統攔截] 報告老闆，大腦回傳了空白內容！可能觸發了安全審查。")
                             
             except Exception as e:
                 await ctx.bot.send_message(chat_id=chat_id, text=f"❌ 定時任務「{task_prompt}」執行時發生錯誤：{str(e)}")
