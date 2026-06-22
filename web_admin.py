@@ -145,7 +145,7 @@ HTML_TEMPLATE = """
 
                     <div class="model-category">✨ Gemini 系列</div>
                     <div class="model-tags">
-                        #<span class="model-tag" onclick="replaceModel(this, 'gemini-3.1-pro-preview')">gemini-3.1-pro-preview</span>
+                        #<span class="model-tag" onclick="replaceModel(this, '#gemini-3.1-pro-preview')">gemini-3.1-pro-preview</span>
                         #<span class="model-tag" onclick="replaceModel(this, 'gemini-3-pro-preview')">gemini-3-pro-preview</span>
                         #<span class="model-tag" onclick="replaceModel(this, 'gemini-3.1-flash-lite-preview')">gemini-3.1-flash-lite-preview</span>
                         <span class="model-tag" onclick="replaceModel(this, 'gemini-3.1-flash-lite')">gemini-3.1-flash-lite</span>
