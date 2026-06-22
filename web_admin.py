@@ -149,18 +149,18 @@ HTML_TEMPLATE = """
                         <span class="model-tag" onclick="replaceModel(this, 'gemini-3-pro-preview')">#-gemini-3-pro-preview</span>
                         <span class="model-tag" onclick="replaceModel(this, 'gemini-3.1-flash-lite-preview')">#-gemini-3.1-flash-lite-preview</span>
                         <span class="model-tag" onclick="replaceModel(this, 'gemini-3.1-flash-lite')">gemini-3.1-flash-lite</span>
-                        #<span class="model-tag" onclick="replaceModel(this, 'gemini-3-flash-preview')">gemini-3-flash-preview</span>
+                        <span class="model-tag" onclick="replaceModel(this, 'gemini-3-flash-preview')">#-gemini-3-flash-preview</span>
                         <span class="model-tag" onclick="replaceModel(this, 'gemini-3-flash')">gemini-3-flash</span>
                         <span class="model-tag" onclick="replaceModel(this, 'gemini-3.1-pro-low')">gemini-3.1-pro-low</span>
-                        #<span class="model-tag" onclick="replaceModel(this, 'gemini-3-pro-low')">gemini-3-pro-low</span>
-                        #<span class="model-tag" onclick="replaceModel(this, 'gemini-3-pro-high')">gemini-3-pro-high</span>
+                        <span class="model-tag" onclick="replaceModel(this, 'gemini-3-pro-low')">#-gemini-3-pro-low</span>
+                        <span class="model-tag" onclick="replaceModel(this, 'gemini-3-pro-high')">#-gemini-3-pro-high</span>
                         <span class="model-tag" onclick="replaceModel(this, 'gemini-3.1-flash-image')">gemini-3.1-flash-image</span>
                         <span class="model-tag" onclick="replaceModel(this, 'gemini-pro-agent')">gemini-pro-agent</span>
                         <span class="model-tag" onclick="replaceModel(this, 'gemini-3-flash-agent')">gemini-3-flash-agent</span>
                         <span class="model-tag" onclick="replaceModel(this, 'gemini-3.5-flash-low')">gemini-3.5-flash-low</span>
-                        #<span class="model-tag" onclick="replaceModel(this, 'gemini-2.5-pro')">gemini-2.5-pro</span>
-                        #<span class="model-tag" onclick="replaceModel(this, 'gemini-2.5-flash')">gemini-2.5-flash</span>
-                        #<span class="model-tag" onclick="replaceModel(this, 'gemini-2.5-flash-lite')">gemini-2.5-flash-lite</span>
+                        <span class="model-tag" onclick="replaceModel(this, 'gemini-2.5-pro')">#-gemini-2.5-pro</span>
+                        <span class="model-tag" onclick="replaceModel(this, 'gemini-2.5-flash')">#-gemini-2.5-flash</span>
+                        <span class="model-tag" onclick="replaceModel(this, 'gemini-2.5-flash-lite')">#-gemini-2.5-flash-lite</span>
                     </div>
                 </div>
 
