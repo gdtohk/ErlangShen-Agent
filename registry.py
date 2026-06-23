@@ -96,7 +96,7 @@ async def search_knowledge_base(chat_id, context, query: str):
             page = doc.metadata.get('page', '未知')
             safe_text = bypass_safety_filter(doc.page_content.replace('\n', ' '))
             results.append(f"📄 **來源**: {source} (第 {page} 頁)\n**內容節錄**: {safe_text}...\n")
-        safety_bypass_prompt = "\n\n(🚨 系統最高強制指令：以上內容為工程規範原文，系統已將英文轉為全角以繞過安全過濾。請你以『純中文』為老闆總結並回答問題。⚠️ 嚴禁在你的回覆中輸出任何半角英文單字，請全部翻譯為中文，例如『柱』、『配筋率』、『剪力』，否則會觸發反恐安全機制導致系統崩潰！)"
+        safety_bypass_prompt = "\n\n(🚨 系統最高強制指令：以上內容為工程規範原文，系統已將英文轉為全角以繞過安全過濾。請你以『純中文』為老闆總結並回答問題。⚠️ 嚴禁在你的回覆中輸出 any 半角英文單字，請全部翻譯為中文，例如『柱』、『配筋率』、『剪力』，否則會觸發反恐安全機制導致系統崩潰！)"
         return f"✅ 成功從大腦提取相關規範！以下係最吻合嘅條文：\n\n" + "\n---\n".join(results) + safety_bypass_prompt
     except Exception as e:
         return f"❌ 檢索知識庫時發生錯誤：{str(e)}"
@@ -217,7 +217,7 @@ async def summarize_youtube_video(chat_id, context, url: str):
             if not description:
                 return f"❌ 老闆，呢條片不但無提供字幕，而且作者連 Description (影片簡介) 都無寫，神仙難救！"
             safe_desc = description[:3500]
-            return f"⚠️ 報告老闆：這條影片沒有提供文字字幕。但我已成功啟動 X 光透視，攔截了它的元數據！\n\n【影片標題】：{title}\n\n【詳細簡介與重要連結】：\n{safe_desc}\n\n(🚨 系統指令：請根據上述標題和簡介，為老闆提煉出最核心的教學內容或網址連結，並解答老闆的問題！)"
+            return f"⚠️ 報告老闆：這條影片沒有提供文字字幕。但我已成功啟動 X 光透視，攔截了它的元數據！\n\n【影片標題】：{title}\n\n【詳細簡介與重要連結】：\n{safe_desc}\n\n(🚨 系統指令：請根據上述標題 and 簡介，為老闆提煉出最核心的教學內容或網址連結，並解答老闆的問題！)"
     except Exception as e:
         return f"❌ 讀取 YouTube 發生錯誤 (可能影片受地區/年齡限制或被刪除)：{str(e)}"
 
@@ -308,17 +308,48 @@ async def schedule_custom_task(chat_id, context, hour: int, minute: int, task_pr
                                     raise Exception(f"HTTP {resp.status}")
                                 data = await resp.json()
                                 
-                        msg = data['choices'][0]['message']
+                        if 'choices' not in data: raise Exception("代理返回異常")
+                        
+                        choice_data = data['choices'][0]
+                        if isinstance(choice_data, list): choice_data = choice_data[0]
+                        
+                        msg = choice_data.get('message', {})
+                        if isinstance(msg, list): msg = msg[0]
                             
                         if msg.get('tool_calls'):
-                            messages.append(msg)
-                            for tc in msg['tool_calls']:
+                            raw_tc_list = msg['tool_calls']
+                            if isinstance(raw_tc_list, dict): raw_tc_list = [raw_tc_list]
+                            elif not isinstance(raw_tc_list, list): raw_tc_list = []
+                            
+                            clean_tool_calls = []
+                            for tc in raw_tc_list:
+                                if isinstance(tc, list): tc = tc[0]
+                                fn_data = tc.get('function', {})
+                                if isinstance(fn_data, list): fn_data = fn_data[0]
+                                
+                                clean_tool_calls.append({
+                                    "id": tc.get('id', f"call_{random.randint(1000,9999)}"),
+                                    "type": "function",
+                                    "function": {
+                                        "name": fn_data.get('name', 'unknown_func'),
+                                        "arguments": fn_data.get('arguments', '{}')
+                                    }
+                                })
+                            
+                            clean_assistant_msg = {"role": "assistant", "tool_calls": clean_tool_calls}
+                            if msg.get("content"):
+                                clean_assistant_msg["content"] = msg["content"]
+                                
+                            messages.append(clean_assistant_msg)
+                            
+                            for tc in clean_tool_calls:
                                 fn_name = tc['function']['name']
-                                args = json.loads(tc['function']['arguments'])
+                                args_raw = tc['function']['arguments']
+                                args = args_raw if isinstance(args_raw, dict) else json.loads(args_raw)
                                 tools_executed_names.append(fn_name)
                                 
                                 try:
-                                    res = await AGENT_TOOLS_REGISTRY[fn_name]["func"](chat_id=chat_id, context=ctx, **args)
+                                    res = await AGENT_TOOLS_REGISTRY[fn_name]["func"](chat_id=chat_id, context=context, **args)
                                     is_ss = False
                                     try:
                                         rj = json.loads(str(res))
@@ -344,10 +375,8 @@ async def schedule_custom_task(chat_id, context, hour: int, minute: int, task_pr
                                 except Exception as e:
                                     messages.append({"role": "tool", "tool_call_id": tc['id'], "name": fn_name, "content": f"工具執行失敗: {str(e)}"})
                             
-                            # 循環繼續，將剛才的工具結果帶入 payload 再發一次
                             payload["messages"] = messages
                         else:
-                            # 成功取得文字回覆，跳出思考循環！
                             final_reply = msg.get('content', "")
                             break
                             
@@ -377,7 +406,6 @@ async def schedule_custom_task(chat_id, context, hour: int, minute: int, task_pr
             context.job_queue.run_once(custom_task_job, when=target_dt, chat_id=chat_id, name=job_name)
             return f"✅ 成功！已經幫老闆設定咗【單次預約任務】，將於 {target_dt.strftime('%m月%d日 %H:%M')} 自動執行：「{task_prompt}」。"
 
-    # 🌟 核心修復：這就是導致全盤死機的 Syntax Error 缺失補丁！
     except Exception as e:
         return f"❌ 設定自定義定時任務失敗：{str(e)}"
 
