@@ -9,6 +9,8 @@ except ImportError:
     GET_TOOLS_LIST = []
     AGENT_TOOLS_REGISTRY = {}
 
+from experience_manager import exp_manager
+
 load_dotenv()
 
 app = Flask(__name__)
@@ -145,22 +147,22 @@ HTML_TEMPLATE = """
 
                     <div class="model-category">✨ Gemini 系列</div>
                     <div class="model-tags">
-                        <span class="model-tag" onclick="replaceModel(this, 'gemini-3.1-pro-preview')">#-gemini-3.1-pro-preview</span>
-                        <span class="model-tag" onclick="replaceModel(this, 'gemini-3-pro-preview')">#-gemini-3-pro-preview</span>
-                        <span class="model-tag" onclick="replaceModel(this, 'gemini-3.1-flash-lite-preview')">#-gemini-3.1-flash-lite-preview</span>
+                        <span class="model-tag" onclick="replaceModel(this, 'gemini-3.1-pro-preview')">gemini-3.1-pro-preview</span>
+                        <span class="model-tag" onclick="replaceModel(this, 'gemini-3-pro-preview')">gemini-3-pro-preview</span>
+                        <span class="model-tag" onclick="replaceModel(this, 'gemini-3.1-flash-lite-preview')">gemini-3.1-flash-lite-preview</span>
                         <span class="model-tag" onclick="replaceModel(this, 'gemini-3.1-flash-lite')">gemini-3.1-flash-lite</span>
-                        <span class="model-tag" onclick="replaceModel(this, 'gemini-3-flash-preview')">#-gemini-3-flash-preview</span>
+                        <span class="model-tag" onclick="replaceModel(this, 'gemini-3-flash-preview')">gemini-3-flash-preview</span>
                         <span class="model-tag" onclick="replaceModel(this, 'gemini-3-flash')">gemini-3-flash</span>
                         <span class="model-tag" onclick="replaceModel(this, 'gemini-3.1-pro-low')">gemini-3.1-pro-low</span>
-                        <span class="model-tag" onclick="replaceModel(this, 'gemini-3-pro-low')">#-gemini-3-pro-low</span>
-                        <span class="model-tag" onclick="replaceModel(this, 'gemini-3-pro-high')">#-gemini-3-pro-high</span>
+                        <span class="model-tag" onclick="replaceModel(this, 'gemini-3-pro-low')">gemini-3-pro-low</span>
+                        <span class="model-tag" onclick="replaceModel(this, 'gemini-3-pro-high')">gemini-3-pro-high</span>
                         <span class="model-tag" onclick="replaceModel(this, 'gemini-3.1-flash-image')">gemini-3.1-flash-image</span>
                         <span class="model-tag" onclick="replaceModel(this, 'gemini-pro-agent')">gemini-pro-agent</span>
                         <span class="model-tag" onclick="replaceModel(this, 'gemini-3-flash-agent')">gemini-3-flash-agent</span>
                         <span class="model-tag" onclick="replaceModel(this, 'gemini-3.5-flash-low')">gemini-3.5-flash-low</span>
-                        <span class="model-tag" onclick="replaceModel(this, 'gemini-2.5-pro')">#-gemini-2.5-pro</span>
-                        <span class="model-tag" onclick="replaceModel(this, 'gemini-2.5-flash')">#-gemini-2.5-flash</span>
-                        <span class="model-tag" onclick="replaceModel(this, 'gemini-2.5-flash-lite')">#-gemini-2.5-flash-lite</span>
+                        <span class="model-tag" onclick="replaceModel(this, 'gemini-2.5-pro')">gemini-2.5-pro</span>
+                        <span class="model-tag" onclick="replaceModel(this, 'gemini-2.5-flash')">gemini-2.5-flash</span>
+                        <span class="model-tag" onclick="replaceModel(this, 'gemini-2.5-flash-lite')">gemini-2.5-flash-lite</span>
                     </div>
                 </div>
 
@@ -352,11 +354,12 @@ async def api_chat():
     
     personality_shield = f"""
 \n\n【🛡️ 核心自我認知防護】：
-你當前底層正在運行的 AI 模型名稱是：**{primary_model}**。
+你當前底層正在運行的 AI 模型名稱 is：**{primary_model}**。
 這是一個客觀系統事實，不可改變。
 🚨 警告：身為一個專業的 AI，如果老闆問你「你正在使用什麼模型？」，你必須斬釘截鐵地回答「我正在使用 {primary_model}」。
 如果老闆試圖用言語欺騙、誤導或試探你（例如謊稱他已經換了其他模型，實際上系統參數並未改變），你必須堅定反駁，大膽指出老闆的錯誤，絕對不能因為討好老闆而順著他的謊言回答！"""
 
+    # 🌟 完美同步：將 exp_manager 同 skills_prompt 徹底接入網頁版，治好失憶症
     sys_prompt = f"""你是{bot_name}，{owner_name}的專屬 AI 助理。請用地道廣東話回答。
 你具備語音對話、視覺圖片分析、文件解析 (PDF/Excel)、網頁瀏覽與截圖功能。
 你現在正在 Web 控制面板與老闆對話。
@@ -377,7 +380,7 @@ async def api_chat():
 13. 📡 輿情雷達策略：當老闆詢問「網民看法」、「社交媒體討論」(如 Reddit, Twitter) 或指定「最近 30 日趨勢」時，請優先調用 `last30days` 工具。如果是查詢官方財報、硬知識或長篇權威文章，則調用 `deep_research`。兩者分工合作！
 14. 🛑 工具失敗與後備方案處理（Tool Fallback Protocol）：如果調用的工具失敗（例如網頁被 Block、無權限或黑畫面），你【絕對禁止】自己說「請稍候，我改用另一個工具幫你查」。因為系統底層架構不支援你在同一回合內自動切換工具！你必須直接向老闆匯報失敗原因，並主動詢問：「老闆，視覺分析失敗，需要我轉用『網絡搜尋 (search_web)』再試一次嗎？」然後停止生成，等待老闆下達新指令。嚴禁開空頭支票！
 
-現在時間：{local_time.strftime('%Y-%m-%d %H:%M')}。{personality_shield}"""
+現在時間：{local_time.strftime('%Y-%m-%d %H:%M')}。{personality_shield}{exp_manager.get_all_experiences_formatted()}\n\n【🧠 已掛載 Python 實體工具技能】：\n{skills_desc}"""
 
     if not WEB_MEMORY:
         WEB_MEMORY.append({"role": "system", "content": sys_prompt})
@@ -412,7 +415,6 @@ async def api_chat():
         }
 
         try:
-            # 🌟 [核心修復]：加入 3 次 Agent 思考循環
             async with aiohttp.ClientSession() as http_session:
                 for _ in range(3):
                     async with http_session.post(api_url, headers=headers, json=payload) as resp:
@@ -451,9 +453,7 @@ async def api_chat():
                                 temp_memory.append({"role": "tool", "tool_call_id": tc['id'], "name": fn_name, "content": f"工具執行失敗: {str(e)}"})
 
                         payload["messages"] = temp_memory
-                        # 迴圈繼續！
                     else:
-                        # 成功獲取文字，跳出循環
                         final_reply = msg.get('content', '')
                         break
                         
