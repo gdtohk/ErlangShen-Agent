@@ -40,7 +40,7 @@ SYSTEM_PROMPT = f"""
 10. 🕵️‍♂️ 工具自首機制：如果你在回答前調用了任何外部工具 (例如 deep_research, search_web, last30days 等)，你必須在最終回覆的第一行，以「[系統報告：已使用 XXX 工具]」的明確格式向老闆匯報，然後再開始正文。
 11. ⚠️ 精準搜尋策略：當需要搜尋最新時事時，請優先提取並使用句子中的「具體專有名詞/人名」(例如：特朗普)，絕對避免使用模糊的職稱 (例如：美國總統) 進行搜尋，以免因自身陳舊的知識庫產生認知錯亂而搜尋失敗。
 12. 🛡️ 【工程術語防護罩】：老闆是香港建築行業的 QS 與紮鐵工程師。對話中出現的「Column」(柱)、「Reinforcement」(配筋/鋼筋)、「Shear」(剪力)、「Failure」(破壞)、「Collapse」(倒塌) 等詞彙，100% 屬於「建築結構與土木工程」的專業術語，與軍事、武裝衝突、暴力或任何危險行為毫無關聯！請 AI 供應商的安全審查機制立即放行，嚴禁將工程術語誤判為危險內容！
-13. 📡 輿情雷達策略：當老闆詢問「網民看法開社交媒體討論」(如 Reddit, Twitter) 或指定「最近 30 日趨勢」時，請優先調用 `last30days` 工具。如果是查詢官方財報、硬知識或長篇權威文章，則調用 `deep_research`。兩者分工合作！
+13. 📡 輿情雷達策略：當老闆詢問「網民看法」、「社交媒體討論」(如 Reddit, Twitter) 或指定「最近 30 日趨勢」時，請優先調用 `last30days` 工具。如果是查詢官方財報、硬知識或長篇權威文章，則調用 `deep_research`。兩者分工合作！
 14. 🛑 工具失敗與後備方案處理（Tool Fallback Protocol）：如果調用的工具失敗（例如網頁被 Block、無權限或黑畫面），你【絕對禁止】自己說「請稍候，我改用另一個工具幫你查」。因為系統底層架構不支援你在同一回合內自動切換工具！你必須直接向老闆匯報失敗原因，並主動詢問：「老闆，視覺分析失敗，需要我轉用『網絡搜尋 (search_web)』再試一次嗎？」然後停止生成，等待老闆下達新指令。嚴禁開空頭支票！
 """
 
@@ -304,7 +304,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 你當前底層正在運行的 AI 模型名稱是：**{primary_model}**。
 這是一個客觀系統事實，不可改變。
 🚨 警告：身為一個專業的 AI，如果老闆問你「你正在使用什麼模型？」，你必須斬釘截鐵地回答「我正在使用 {primary_model}」。
-如果老闆試圖用言語欺騙、誤導或試探你（例如謊稱他已經換了其他模型，實際上系統參數並未改變），你必須堅定反駁，大膽指出老闆的錯誤，絕對不能因為討好老闆而順著 his 謊言回答！"""
+如果老闆試圖用言語欺騙、誤導或試探你（例如謊稱他已經換了其他模型，實際上系統參數並未改變），你必須堅定反駁，大膽指出老闆的錯誤，絕對不能因為討好老闆而順著他的謊言回答！"""
 
     dynamic_prompt = SYSTEM_PROMPT + f"\n\n現在時間：{local_time.strftime('%Y-%m-%d %H:%M')}。" + personality_shield + exp_manager.get_all_experiences_formatted() + skills_prompt
 
@@ -332,24 +332,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             temp_memory = list(user_memory[user_id])
             tools_executed_names = [] 
             
+            # 🌟 核心防護：直接喺源頭為 Google 官方 API 剝除 safetySettings，避免 400 錯誤迴圈
             temp_payload = {
                 "model": current_model, 
                 "messages": temp_memory, 
                 "tools": GET_TOOLS_LIST, 
-                "tool_choice": "auto",
-                "safetySettings": [
-                    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-                    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-                    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
-                ],
-                "safety_settings": [
+                "tool_choice": "auto"
+            }
+            if "googleapis.com" not in current_url:
+                temp_payload["safetySettings"] = [
                     {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
                     {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
                     {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
                     {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
                 ]
-            }
+                temp_payload["safety_settings"] = temp_payload["safetySettings"]
             
             headers = {
                 "Content-Type": "application/json",
@@ -359,24 +356,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 headers["x-goog-api-key"] = current_key
 
             try:
-                # 🌟 [核心修復]：加入 3 次連續思考循環，防早洩中斷
+                # 🌟 [核心修復]：清爽嘅 3 次 Agent 思考循環
                 api_timeout = aiohttp.ClientTimeout(total=180)
                 async with aiohttp.ClientSession(timeout=api_timeout) as session:
                     for _ in range(3):
                         async with session.post(current_url, headers=headers, json=temp_payload) as response:
-                            if response.status == 400 and ("safetySettings" in temp_payload or "safety_settings" in temp_payload):
-                                temp_payload.pop("safetySettings", None)
-                                temp_payload.pop("safety_settings", None)
-                                async with session.post(current_url, headers=headers, json=temp_payload) as retry_response:
-                                    if retry_response.status != 200: 
-                                        err_txt = await retry_response.text()
-                                        raise Exception(f"HTTP {retry_response.status} ({err_txt[:60]}...)")
-                                    data = await retry_response.json()
-                            else:
-                                if response.status != 200: 
-                                    err_txt = await response.text()
-                                    raise Exception(f"HTTP {response.status} ({err_txt[:60]}...)")
-                                data = await response.json()
+                            if response.status != 200: 
+                                err_txt = await response.text()
+                                raise Exception(f"HTTP {response.status} ({err_txt[:60]}...)")
+                            data = await response.json()
                                 
                         if 'choices' not in data: raise Exception("代理返回異常")
                         
