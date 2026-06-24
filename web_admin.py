@@ -9,8 +9,6 @@ except ImportError:
     GET_TOOLS_LIST = []
     AGENT_TOOLS_REGISTRY = {}
 
-from experience_manager import exp_manager
-
 load_dotenv()
 
 app = Flask(__name__)
@@ -352,9 +350,6 @@ async def api_chat():
 
     local_time = datetime.datetime.now(ZoneInfo(tz_str))
     
-    # 🌟 補返定義 skills_desc 避免 NameError
-    skills_desc = "\n".join([f"🔸 {t['function']['name']}: {t['function']['description']}" for t in GET_TOOLS_LIST])
-    
     personality_shield = f"""
 \n\n【🛡️ 核心自我認知防護】：
 你當前底層正在運行的 AI 模型名稱是：**{primary_model}**。
@@ -382,7 +377,7 @@ async def api_chat():
 13. 📡 輿情雷達策略：當老闆詢問「網民看法」、「社交媒體討論」(如 Reddit, Twitter) 或指定「最近 30 日趨勢」時，請優先調用 `last30days` 工具。如果是查詢官方財報、硬知識或長篇權威文章，則調用 `deep_research`。兩者分工合作！
 14. 🛑 工具失敗與後備方案處理（Tool Fallback Protocol）：如果調用的工具失敗（例如網頁被 Block、無權限或黑畫面），你【絕對禁止】自己說「請稍候，我改用另一個工具幫你查」。因為系統底層架構不支援你在同一回合內自動切換工具！你必須直接向老闆匯報失敗原因，並主動詢問：「老闆，視覺分析失敗，需要我轉用『網絡搜尋 (search_web)』再試一次嗎？」然後停止生成，等待老闆下達新指令。嚴禁開空頭支票！
 
-現在時間：{local_time.strftime('%Y-%m-%d %H:%M')}。{personality_shield}{exp_manager.get_all_experiences_formatted()}\n\n【🧠 已掛載 Python 實體工具技能】：\n{skills_desc}"""
+現在時間：{local_time.strftime('%Y-%m-%d %H:%M')}。{personality_shield}"""
 
     if not WEB_MEMORY:
         WEB_MEMORY.append({"role": "system", "content": sys_prompt})
@@ -395,7 +390,7 @@ async def api_chat():
         WEB_MEMORY.pop(1)
         WEB_MEMORY.pop(1)
 
-    forbidden_tools = ['set_reminder', 'schedule_daily_weather']
+    forbidden_tools = ['schedule_custom_task']
     web_tools = [t for t in GET_TOOLS_LIST if t['function']['name'] not in forbidden_tools]
 
     headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {api_key}'}
@@ -415,26 +410,26 @@ async def api_chat():
             "tools": web_tools,
             "tool_choice": "auto"
         }
+        if "googleapis.com" not in api_url:
+            payload["safetySettings"] = [
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
+            ]
+            payload["safety_settings"] = payload["safetySettings"]
 
         try:
+            # 🌟 [核心修復]：清爽嘅 3 次 Agent 思考循環
             async with aiohttp.ClientSession() as http_session:
                 for _ in range(3):
                     async with http_session.post(api_url, headers=headers, json=payload) as resp:
-                        if resp.status == 400 and ("safetySettings" in payload or "safety_settings" in payload):
-                            payload.pop("safetySettings", None)
-                            payload.pop("safety_settings", None)
-                            async with http_session.post(api_url, headers=headers, json=payload) as retry_resp:
-                                if retry_resp.status != 200:
-                                    err_txt = await retry_resp.text()
-                                    raise Exception(f"HTTP {retry_resp.status} ({err_txt[:60]}...)")
-                                data = await retry_resp.json()
-                        else:
-                            if resp.status != 200:
-                                err_txt = await resp.text()
-                                raise Exception(f"HTTP {resp.status} ({err_txt[:60]}...)")
-                            data = await resp.json()
+                        if resp.status != 200:
+                            err_txt = await resp.text()
+                            raise Exception(f"HTTP {resp.status} ({err_txt[:60]}...)")
                             
-                    msg = data['choices'][0]['message']
+                        data = await resp.json()
+                        msg = data['choices'][0]['message']
 
                     if msg.get('tool_calls'):
                         temp_memory = list(WEB_MEMORY)
