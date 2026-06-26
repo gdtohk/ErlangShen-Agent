@@ -150,13 +150,13 @@ async def browse_website_with_playwright(chat_id, context, url: str):
             await page.goto(url, timeout=60000, wait_until="domcontentloaded")
             content = await page.evaluate("document.body.innerText")
             page_title = await page.title()
-            screenshot_bytes = await page.screenshot(type='jpeg', quality=30, full_page=False)
+            screenshot_bytes = await page.screenshot(type='jpeg', quality=30, full_page=True)
             base64_encoded = base64.b64encode(screenshot_bytes).decode('utf-8')
             await browser.close()
             return json.dumps({
                 "type": "webpage_with_screenshot",
                 "title": page_title,
-                "text": content[:1500],
+                "text": content[:8000],
                 "image_base64": base64_encoded
             })
     except Exception as e: return f"❌ 訪問網頁失敗：{str(e)}"
@@ -171,7 +171,7 @@ async def read_webpage_with_jina(chat_id, context, url: str):
             async with session.get(jina_url, headers=headers, proxy="http://127.0.0.1:7928") as resp:
                 if resp.status == 200:
                     raw_text = await resp.text()
-                    final_text = raw_text[:3500]
+                    final_text = raw_text[:12000]
                     return f"🥷 網頁讀取成功！以下係內容摘要：\n\n{final_text}"
                 else:
                     return f"❌ Jina 伺服器無法解析此網頁 (HTTP {resp.status})，可能被極強防護攔截。"
