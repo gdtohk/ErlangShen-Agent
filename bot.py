@@ -332,21 +332,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             temp_memory = list(user_memory[user_id])
             tools_executed_names = [] 
             
-            # 🌟 核心防護：直接喺源頭為 Google 官方 API 剝除 safetySettings，避免 400 錯誤迴圈
             temp_payload = {
                 "model": current_model, 
                 "messages": temp_memory, 
                 "tools": GET_TOOLS_LIST, 
-                "tool_choice": "auto"
-            }
-            if "googleapis.com" not in current_url:
-                temp_payload["safetySettings"] = [
+                "tool_choice": "auto",
+                "safetySettings": [
+                    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
+                ],
+                "safety_settings": [
                     {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
                     {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
                     {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
                     {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
                 ]
-                temp_payload["safety_settings"] = temp_payload["safetySettings"]
+            }
             
             headers = {
                 "Content-Type": "application/json",
@@ -356,15 +359,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 headers["x-goog-api-key"] = current_key
 
             try:
-                # 🌟 [核心修復]：清爽嘅 3 次 Agent 思考循環
+                # 🌟 [核心升級]：提升為 4 次思考循環 + 「防扮啞」強制逼供機制
                 api_timeout = aiohttp.ClientTimeout(total=180)
                 async with aiohttp.ClientSession(timeout=api_timeout) as session:
-                    for _ in range(3):
+                    for loop_idx in range(4):
                         async with session.post(current_url, headers=headers, json=temp_payload) as response:
-                            if response.status != 200: 
-                                err_txt = await response.text()
-                                raise Exception(f"HTTP {response.status} ({err_txt[:60]}...)")
-                            data = await response.json()
+                            if response.status == 400 and ("safetySettings" in temp_payload or "safety_settings" in temp_payload):
+                                temp_payload.pop("safetySettings", None)
+                                temp_payload.pop("safety_settings", None)
+                                async with session.post(current_url, headers=headers, json=temp_payload) as retry_response:
+                                    if retry_response.status != 200: 
+                                        err_txt = await retry_response.text()
+                                        raise Exception(f"HTTP {retry_response.status} ({err_txt[:60]}...)")
+                                    data = await retry_response.json()
+                            else:
+                                if response.status != 200: 
+                                    err_txt = await response.text()
+                                    raise Exception(f"HTTP {response.status} ({err_txt[:60]}...)")
+                                data = await response.json()
                                 
                         if 'choices' not in data: raise Exception("代理返回異常")
                         
@@ -441,6 +453,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             temp_payload["messages"] = temp_memory
                         else:
                             final_reply = msg.get('content', "")
+                            # 🌟 核心防禦：如果 AI 用完工具後「扮啞」唔出聲，強行兜巴星推佢出去總結！
+                            if not final_reply.strip() and tools_executed_names and loop_idx < 3:
+                                temp_memory.append({"role": "user", "content": "【系統強制指令】：工具已執行完畢。請你根據剛才獲取的數據，立刻為老闆輸出詳細的中文總結報告，絕對不能回傳空白。"})
+                                temp_payload["messages"] = temp_memory
+                                continue
                             break
 
                 user_memory[user_id] = temp_memory
