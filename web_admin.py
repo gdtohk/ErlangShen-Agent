@@ -390,7 +390,7 @@ async def api_chat():
         WEB_MEMORY.pop(1)
         WEB_MEMORY.pop(1)
 
-    forbidden_tools = ['schedule_custom_task']
+    forbidden_tools = ['set_reminder', 'schedule_daily_weather']
     web_tools = [t for t in GET_TOOLS_LIST if t['function']['name'] not in forbidden_tools]
 
     headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {api_key}'}
@@ -410,26 +410,27 @@ async def api_chat():
             "tools": web_tools,
             "tool_choice": "auto"
         }
-        if "googleapis.com" not in api_url:
-            payload["safetySettings"] = [
-                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
-            ]
-            payload["safety_settings"] = payload["safetySettings"]
 
         try:
-            # 🌟 [核心修復]：清爽嘅 3 次 Agent 思考循環
+            # 🌟 [核心升級]：提升為 4 次思考循環 + 「防扮啞」強制逼供機制
             async with aiohttp.ClientSession() as http_session:
-                for _ in range(3):
+                for loop_idx in range(4):
                     async with http_session.post(api_url, headers=headers, json=payload) as resp:
-                        if resp.status != 200:
-                            err_txt = await resp.text()
-                            raise Exception(f"HTTP {resp.status} ({err_txt[:60]}...)")
+                        if resp.status == 400 and ("safetySettings" in payload or "safety_settings" in payload):
+                            payload.pop("safetySettings", None)
+                            payload.pop("safety_settings", None)
+                            async with http_session.post(api_url, headers=headers, json=payload) as retry_resp:
+                                if retry_resp.status != 200:
+                                    err_txt = await retry_resp.text()
+                                    raise Exception(f"HTTP {retry_resp.status} ({err_txt[:60]}...)")
+                                data = await retry_resp.json()
+                        else:
+                            if resp.status != 200:
+                                err_txt = await resp.text()
+                                raise Exception(f"HTTP {resp.status} ({err_txt[:60]}...)")
+                            data = await resp.json()
                             
-                        data = await resp.json()
-                        msg = data['choices'][0]['message']
+                    msg = data['choices'][0]['message']
 
                     if msg.get('tool_calls'):
                         temp_memory = list(WEB_MEMORY)
@@ -451,7 +452,13 @@ async def api_chat():
 
                         payload["messages"] = temp_memory
                     else:
+                        # 成功獲取文字，跳出循環
                         final_reply = msg.get('content', '')
+                        # 🌟 核心防禦：如果 AI 用完工具後「扮啞」唔出聲，強行兜巴星推佢出去總結！
+                        if not final_reply.strip() and tools_executed_names and loop_idx < 3:
+                            temp_memory.append({"role": "user", "content": "【系統強制指令】：工具已執行完畢。請你根據剛才獲取的數據，立刻為老闆輸出詳細的中文總結報告，絕對不能回傳空白。"})
+                            payload["messages"] = temp_memory
+                            continue
                         break
                         
                 if not final_reply or str(final_reply).strip() == "":
