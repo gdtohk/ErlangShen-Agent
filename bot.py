@@ -332,24 +332,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             temp_memory = list(user_memory[user_id])
             tools_executed_names = [] 
             
+            # 🌟 核心防護：直接喺源頭為 Google 官方 API 剝除 safetySettings，避免 400 錯誤迴圈
             temp_payload = {
                 "model": current_model, 
                 "messages": temp_memory, 
                 "tools": GET_TOOLS_LIST, 
-                "tool_choice": "auto",
-                "safetySettings": [
-                    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-                    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-                    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
-                ],
-                "safety_settings": [
+                "tool_choice": "auto"
+            }
+            if "googleapis.com" not in current_url:
+                temp_payload["safetySettings"] = [
                     {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
                     {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
                     {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
                     {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
                 ]
-            }
+                temp_payload["safety_settings"] = temp_payload["safetySettings"]
             
             headers = {
                 "Content-Type": "application/json",
@@ -359,24 +356,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 headers["x-goog-api-key"] = current_key
 
             try:
-                # 🌟 [核心升級]：提升為 4 次思考循環 + 「防扮啞」強制逼供機制
+                # 🌟 [核心修復]：升級為 4 次思考循環 + 「防扮啞」強制逼供機制
                 api_timeout = aiohttp.ClientTimeout(total=180)
                 async with aiohttp.ClientSession(timeout=api_timeout) as session:
                     for loop_idx in range(4):
                         async with session.post(current_url, headers=headers, json=temp_payload) as response:
-                            if response.status == 400 and ("safetySettings" in temp_payload or "safety_settings" in temp_payload):
-                                temp_payload.pop("safetySettings", None)
-                                temp_payload.pop("safety_settings", None)
-                                async with session.post(current_url, headers=headers, json=temp_payload) as retry_response:
-                                    if retry_response.status != 200: 
-                                        err_txt = await retry_response.text()
-                                        raise Exception(f"HTTP {retry_response.status} ({err_txt[:60]}...)")
-                                    data = await retry_response.json()
-                            else:
-                                if response.status != 200: 
-                                    err_txt = await response.text()
-                                    raise Exception(f"HTTP {response.status} ({err_txt[:60]}...)")
-                                data = await response.json()
+                            if response.status != 200: 
+                                err_txt = await response.text()
+                                raise Exception(f"HTTP {response.status} ({err_txt[:60]}...)")
+                            data = await response.json()
                                 
                         if 'choices' not in data: raise Exception("代理返回異常")
                         
@@ -412,6 +400,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                 
                             temp_memory.append(clean_assistant_msg)
                             
+                            extra_user_contents = []
+                            
                             for tc in clean_tool_calls:
                                 fn = tc['function']['name']
                                 args_raw = tc['function']['arguments']
@@ -428,16 +418,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                         if isinstance(rj, dict):
                                             if rj.get("type") == "webpage_with_screenshot":
                                                 temp_memory.append({"role": "tool", "tool_call_id": tc['id'], "name": fn, "content": f"文字：{rj.get('text', '')}"})
-                                                temp_memory.append({"role": "user", "content": [{"type": "text", "text": "請參考網頁截圖。"}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{rj.get('image_base64', '')}"}}]})
+                                                extra_user_contents.append({"type": "text", "text": "請參考網頁截圖。"})
+                                                extra_user_contents.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{rj.get('image_base64', '')}"}})
                                                 is_ss = True
                                             elif rj.get("type") == "pdf_with_images":
                                                 temp_memory.append({"role": "tool", "tool_call_id": tc['id'], "name": fn, "content": rj.get("text", "成功擷取影像")})
-                                                
-                                                img_contents = [{"type": "text", "text": "【系統注入】：以上是從雲端硬碟提取的圖紙影像，請以專業 QS 角度仔細進行視覺分析、解讀當中的表格及細節。"}]
+                                                extra_user_contents.append({"type": "text", "text": "【系統注入】：以上是從雲端硬碟提取的圖紙影像，請以專業 QS 角度仔細進行視覺分析、解讀當中的表格及細節。"})
                                                 for b64_img in rj.get("images_base64", []):
-                                                    img_contents.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_img}"}})
-                                                    
-                                                temp_memory.append({"role": "user", "content": img_contents})
+                                                    extra_user_contents.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_img}"}})
                                                 is_ss = True
                                     except: pass
 
@@ -450,11 +438,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                 except Exception as e:
                                     temp_memory.append({"role": "tool", "tool_call_id": tc['id'], "name": fn, "content": f"工具執行失敗: {str(e)}"})
                             
+                            # 🌟 核心防護：確保視覺數據統一喺 User 回合發送，絕不打斷 Google 的 Tool Sequence！
+                            if extra_user_contents:
+                                temp_memory.append({"role": "assistant", "content": "收到，正在分析視覺數據。"})
+                                temp_memory.append({"role": "user", "content": extra_user_contents})
+                                
                             temp_payload["messages"] = temp_memory
                         else:
                             final_reply = msg.get('content', "")
                             # 🌟 核心防禦：如果 AI 用完工具後「扮啞」唔出聲，強行兜巴星推佢出去總結！
                             if not final_reply.strip() and tools_executed_names and loop_idx < 3:
+                                temp_memory.append({"role": "assistant", "content": "資料已接收。"})
                                 temp_memory.append({"role": "user", "content": "【系統強制指令】：工具已執行完畢。請你根據剛才獲取的數據，立刻為老闆輸出詳細的中文總結報告，絕對不能回傳空白。"})
                                 temp_payload["messages"] = temp_memory
                                 continue
