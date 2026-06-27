@@ -150,13 +150,13 @@ async def browse_website_with_playwright(chat_id, context, url: str):
             await page.goto(url, timeout=60000, wait_until="domcontentloaded")
             content = await page.evaluate("document.body.innerText")
             page_title = await page.title()
-            screenshot_bytes = await page.screenshot(type='jpeg', quality=30, full_page=True)
+            screenshot_bytes = await page.screenshot(type='jpeg', quality=30, full_page=False)
             base64_encoded = base64.b64encode(screenshot_bytes).decode('utf-8')
             await browser.close()
             return json.dumps({
                 "type": "webpage_with_screenshot",
                 "title": page_title,
-                "text": content[:8000],
+                "text": content[:1500],
                 "image_base64": base64_encoded
             })
     except Exception as e: return f"❌ 訪問網頁失敗：{str(e)}"
@@ -171,7 +171,7 @@ async def read_webpage_with_jina(chat_id, context, url: str):
             async with session.get(jina_url, headers=headers, proxy="http://127.0.0.1:7928") as resp:
                 if resp.status == 200:
                     raw_text = await resp.text()
-                    final_text = raw_text[:12000]
+                    final_text = raw_text[:3500]
                     return f"🥷 網頁讀取成功！以下係內容摘要：\n\n{final_text}"
                 else:
                     return f"❌ Jina 伺服器無法解析此網頁 (HTTP {resp.status})，可能被極強防護攔截。"
@@ -290,11 +290,12 @@ async def schedule_custom_task(chat_id, context, hour: int, minute: int, task_pr
                 headers["x-goog-api-key"] = api_key
             
             try:
+                # 🌟 [核心修復]：加入 4 次連續思考循環 + 完美過渡機制防 400
                 async with aiohttp.ClientSession() as session:
                     final_reply = ""
                     tools_executed_names = []
                     
-                    for _ in range(3):
+                    for loop_idx in range(4):
                         async with session.post(api_url, headers=headers, json=payload, timeout=180) as resp:
                             if resp.status != 200: 
                                 err_txt = await resp.text()
@@ -335,6 +336,8 @@ async def schedule_custom_task(chat_id, context, hour: int, minute: int, task_pr
                                 
                             messages.append(clean_assistant_msg)
                             
+                            extra_user_contents = []
+                            
                             for tc in clean_tool_calls:
                                 fn_name = tc['function']['name']
                                 args_raw = tc['function']['arguments']
@@ -349,14 +352,14 @@ async def schedule_custom_task(chat_id, context, hour: int, minute: int, task_pr
                                         if isinstance(rj, dict):
                                             if rj.get("type") == "webpage_with_screenshot":
                                                 messages.append({"role": "tool", "tool_call_id": tc['id'], "name": fn_name, "content": f"文字內容：{rj.get('text', '')}"})
-                                                messages.append({"role": "user", "content": [{"type": "text", "text": "請參考網頁截圖進行視覺分析。"}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{rj.get('image_base64', '')}"}}]})
+                                                extra_user_contents.append({"type": "text", "text": "請參考網頁截圖進行視覺分析。"})
+                                                extra_user_contents.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{rj.get('image_base64', '')}"}})
                                                 is_ss = True
                                             elif rj.get("type") == "pdf_with_images":
                                                 messages.append({"role": "tool", "tool_call_id": tc['id'], "name": fn_name, "content": rj.get("text", "成功擷取")})
-                                                img_contents = [{"type": "text", "text": "請參考提取的影像進行分析。"}]
+                                                extra_user_contents.append({"type": "text", "text": "請參考提取的影像進行分析。"})
                                                 for b64_img in rj.get("images_base64", []):
-                                                    img_contents.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_img}"}})
-                                                messages.append({"role": "user", "content": img_contents})
+                                                    extra_user_contents.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_img}"}})
                                                 is_ss = True
                                     except: pass
                                         
@@ -368,9 +371,18 @@ async def schedule_custom_task(chat_id, context, hour: int, minute: int, task_pr
                                 except Exception as e:
                                     messages.append({"role": "tool", "tool_call_id": tc['id'], "name": fn_name, "content": f"工具執行失敗: {str(e)}"})
                             
+                            if extra_user_contents:
+                                messages.append({"role": "assistant", "content": "收到，正在分析視覺數據。"})
+                                messages.append({"role": "user", "content": extra_user_contents})
+                                
                             payload["messages"] = messages
                         else:
                             final_reply = msg.get('content', "")
+                            if not final_reply.strip() and tools_executed_names and loop_idx < 3:
+                                messages.append({"role": "assistant", "content": "資料已接收。"})
+                                messages.append({"role": "user", "content": "【系統強制指令】：工具已執行完畢。請你根據剛才獲取的數據，立刻為老闆輸出詳細的中文總結報告，絕對不能回傳空白。"})
+                                payload["messages"] = messages
+                                continue
                             break
                             
                     if final_reply and str(final_reply).strip() != "":
