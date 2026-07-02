@@ -102,4 +102,4 @@ bash update.sh
 
 ---
 **👨‍💻 作者 (Author)**
-HO - QS & Rebar Detailer based in Hong Kong
+HO - QS & Rebar Detailer based in GD
